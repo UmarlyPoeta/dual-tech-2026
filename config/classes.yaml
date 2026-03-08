@@ -1,0 +1,22 @@
+# Class labels used by the YOLO model.
+# Index corresponds to the model's class ID.
+classes:
+  0: box
+  1: red_object
+  2: blue_object
+  3: green_object
+  4: yellow_object
+  5: person          # safety — avoid
+
+# Classes that are competition targets (should be logged)
+target_classes:
+  - box
+  - red_object
+  - blue_object
+  - green_object
+  - yellow_object
+
+# Classes that trigger a transport action (if transport is enabled)
+transport_classes:
+  - red_object
+  - blue_object

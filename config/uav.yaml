@@ -1,0 +1,27 @@
+uav:
+  # ArduPilot / MAVLink connection string
+  connection_string: "/dev/ttyAMA0"
+  baud_rate: 57600
+
+  # Altitudes (metres)
+  takeoff_alt_m: 6.0
+  search_alt_m: 6.0
+  inspect_alt_m: 4.0
+
+  # Speed limits
+  max_xy_speed_mps: 0.4
+  max_z_speed_mps: 0.3
+
+  # Centering tolerance above target (metres)
+  center_threshold_m: 0.2
+  # How long to hold centred before logging (seconds)
+  center_hold_time_s: 1.0
+
+  # Camera servo channel (1-indexed)
+  camera_servo_channel: 9
+  # Servo PWM values
+  camera_search_pwm: 1500  # ~45 degrees tilt
+  camera_inspect_pwm: 1100  # ~90 degrees (straight down)
+
+  # Search pattern waypoints file (relative to project root)
+  search_waypoints_file: "config/uav_search_waypoints.txt"

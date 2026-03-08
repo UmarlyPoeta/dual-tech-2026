@@ -1,0 +1,20 @@
+# Core
+numpy>=1.24
+opencv-python>=4.8
+pyyaml>=6.0
+
+# Perception
+ultralytics>=8.0          # YOLO
+pyzbar>=0.1.9             # QR decoding (optional, cv2 fallback available)
+
+# UAV
+dronekit>=2.9.2           # MAVLink / ArduPilot
+pymavlink>=2.4.40
+
+# UGV / GPS
+pyserial>=3.5
+pynmea2>=1.19
+
+# Development / testing
+pytest>=7.0
+pytest-cov>=4.0

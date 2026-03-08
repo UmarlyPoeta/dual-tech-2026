@@ -1,0 +1,16 @@
+mission:
+  # Number of consecutive frames a detection must appear before acting on it
+  confirm_frames: 5
+  # Minimum confidence threshold to treat a detection as valid
+  classify_confidence: 0.60
+  # Number of QR read attempts before giving up and moving on
+  qr_retry_count: 5
+  # Radius (metres) within which two detections are considered the same target
+  revisit_radius_m_ugv: 2.0
+  revisit_radius_m_uav: 4.0
+
+logging:
+  output_dir: "logs"
+  save_annotated_frames: true
+  csv_filename: "targets.csv"
+  json_filename: "targets.json"
