@@ -72,8 +72,8 @@ class UAVController(MotionInterface):
         """Return ``True`` if the vehicle link is alive, attempting reconnect if needed."""
         if self._vehicle is not None:
             try:
-                # A lightweight attribute read — if the link is dead this will raise
-                _ = self._vehicle.mode
+                # A lightweight property read — if the link is dead this will raise
+                self._vehicle.mode  # noqa: B018
                 return True
             except Exception:
                 logger.warning("MAVLink link lost — attempting reconnect…")

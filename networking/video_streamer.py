@@ -146,7 +146,7 @@ class VideoStreamer:
                     b"<title>FPV</title></head><body style='margin:0;background:#000'>"
                     b"<img src='/stream' style='width:100%;height:auto'>"
                     b"<script>"
-                    b"setInterval(()=>fetch('/ping').catch(()=>{}),1000);"
+                    b"setInterval(()=>fetch('/health').catch(()=>{}),1000);"
                     b"</script>"
                     b"</body></html>"
                 )
