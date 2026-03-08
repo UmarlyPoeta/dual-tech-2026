@@ -3,6 +3,10 @@
 Competition software framework for **DUAL TECH AGH 2026** — autonomous UAV (drone) and UGV (tracked ground vehicle) that search, detect, classify, and log GPS-tagged objects in a competition field.
 
 ---
+Web Gui Screenshot
+
+![webgui](dual-tech-ss-gui.png)
+---
 
 ## Project structure
 
