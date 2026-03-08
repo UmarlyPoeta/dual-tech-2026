@@ -86,6 +86,11 @@ class MissionManager:
         self._candidate_frames: int = 0
         self._current_hypothesis: Optional[TargetHypothesis] = None
 
+    @property
+    def state_name(self) -> str:
+        """Return the current mission state name."""
+        return self._sm.state.name
+
     # ------------------------------------------------------------------
     # Public entry point
     # ------------------------------------------------------------------

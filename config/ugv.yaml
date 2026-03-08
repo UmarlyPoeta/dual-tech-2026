@@ -1,7 +1,16 @@
 ugv:
-  # Serial device for motor driver / microcontroller bridge
-  serial_port: "/dev/ttyUSB0"
-  baud_rate: 115200
+  # GPIO pins for L298N motor driver (BCM numbering)
+  left_motor:
+    in1: 17
+    in2: 27
+    ena: 18
+
+  right_motor:
+    in3: 22
+    in4: 23
+    enb: 13
+
+  pwm_frequency_hz: 1000
 
   # Speed limits
   max_linear_speed_mps: 0.30
@@ -16,3 +25,10 @@ ugv:
 
   # Search pattern waypoints file (relative to project root)
   search_waypoints_file: "config/ugv_search_waypoints.txt"
+
+  # --- Gripper (servo-based, for picking up objects) ---
+  gripper:
+    servo_pin: 12           # BCM pin for the gripper servo
+    pwm_open: 0.1           # duty cycle for fully open
+    pwm_closed: 0.8         # duty cycle for fully closed
+    transit_time_s: 0.6     # seconds to wait for servo travel

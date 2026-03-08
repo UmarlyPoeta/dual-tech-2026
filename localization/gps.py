@@ -1,18 +1,28 @@
-"""GPS reader — reads NMEA sentences from a serial GPS module."""
+"""GPS reader — reads NMEA sentences from a serial GPS module with auto-reconnect."""
 
 from __future__ import annotations
 
 import logging
 import threading
+import time
 from typing import Callable, Optional
 
 from models import Pose
 
 logger = logging.getLogger(__name__)
 
+# Reconnection parameters
+_INITIAL_BACKOFF_S = 1.0
+_MAX_BACKOFF_S = 30.0
+_BACKOFF_FACTOR = 2.0
+
 
 class GpsReader:
     """Reads GPS data in a background thread and exposes the latest fix.
+
+    The reader automatically reconnects to the serial port on failures,
+    using exponential backoff to avoid busy-looping when the device is
+    temporarily unavailable (e.g. USB disconnect during competition).
 
     Parameters
     ----------
@@ -67,7 +77,7 @@ class GpsReader:
             return self._latest
 
     # ------------------------------------------------------------------
-    # Internal
+    # Internal — read loop with auto-reconnect
     # ------------------------------------------------------------------
 
     def _run(self) -> None:
@@ -78,22 +88,37 @@ class GpsReader:
             logger.error("GPS dependencies not available: %s", exc)
             return
 
-        try:
-            with serial.Serial(self._port, self._baud_rate, timeout=1.0) as ser:
-                while self._running:
-                    try:
-                        line = ser.readline().decode("ascii", errors="replace").strip()
-                        if not line:
-                            continue
-                        msg = pynmea2.parse(line)
-                        if hasattr(msg, "latitude") and hasattr(msg, "longitude"):
-                            if msg.latitude and msg.longitude:
-                                pose = Pose(lat=float(msg.latitude), lon=float(msg.longitude))
-                                with self._lock:
-                                    self._latest = pose
-                                if self._on_pose is not None:
-                                    self._on_pose(pose)
-                    except Exception as exc:  # pylint: disable=broad-except
-                        logger.debug("GPS parse error: %s", exc)
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.error("GPS serial error: %s", exc)
+        backoff = _INITIAL_BACKOFF_S
+
+        while self._running:
+            try:
+                with serial.Serial(self._port, self._baud_rate, timeout=1.0) as ser:
+                    logger.info("GPS serial connected (%s @ %d)", self._port, self._baud_rate)
+                    backoff = _INITIAL_BACKOFF_S  # reset on success
+
+                    while self._running:
+                        try:
+                            line = ser.readline().decode("ascii", errors="replace").strip()
+                            if not line:
+                                continue
+                            msg = pynmea2.parse(line)
+                            if hasattr(msg, "latitude") and hasattr(msg, "longitude"):
+                                if msg.latitude and msg.longitude:
+                                    pose = Pose(lat=float(msg.latitude), lon=float(msg.longitude))
+                                    with self._lock:
+                                        self._latest = pose
+                                    if self._on_pose is not None:
+                                        self._on_pose(pose)
+                        except Exception as exc:  # pylint: disable=broad-except
+                            logger.debug("GPS parse error: %s", exc)
+
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.warning(
+                    "GPS serial error (%s): %s — retrying in %.1fs",
+                    self._port, exc, backoff,
+                )
+                # Exponential backoff
+                deadline = time.monotonic() + backoff
+                while self._running and time.monotonic() < deadline:
+                    time.sleep(0.5)
+                backoff = min(backoff * _BACKOFF_FACTOR, _MAX_BACKOFF_S)
