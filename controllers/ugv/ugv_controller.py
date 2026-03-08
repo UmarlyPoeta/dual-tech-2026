@@ -1,4 +1,4 @@
-"""UGV (ground vehicle) controller — drives L298N motor driver via serial."""
+"""UGV (ground vehicle) controller — drives L298N motor driver via GPIO on Raspberry Pi 5."""
 
 from __future__ import annotations
 
@@ -9,22 +9,19 @@ from typing import Optional
 
 import numpy as np
 
+from controllers.ugv.l298n_driver import L298NDriver
 from localization.pose import PoseEstimator
-from models import Pose, TargetHypothesis
+from models import TargetHypothesis
 from motion.motion_interface import MotionInterface
 
 logger = logging.getLogger(__name__)
 
-# --- Motor command byte protocol (matches the Arduino firmware) ---
-# Format: b"<left_speed>,<right_speed>\n"
-# Speeds are integers in [-255, 255]; positive = forward.
-
 
 class UGVController(MotionInterface):
-    """Controls the tracked ground vehicle via a serial link to an L298N motor driver.
+    """Controls the tracked ground vehicle via GPIO pins and an L298N H-bridge.
 
-    The controller expects a simple ASCII protocol:
-    ``"<left>,<right>\\n"`` where values are in the range ``[-255, 255]``.
+    Motor speeds are normalised to ``[-1.0, 1.0]`` and forwarded to
+    :class:`~controllers.ugv.l298n_driver.L298NDriver`.
 
     Parameters
     ----------
@@ -36,8 +33,6 @@ class UGVController(MotionInterface):
         Callable returning the latest BGR frame.
     """
 
-    MAX_PWM = 255
-
     def __init__(
         self,
         config: dict,
@@ -47,7 +42,19 @@ class UGVController(MotionInterface):
         self._cfg = config
         self._pose_estimator = pose_estimator
         self._camera_get_frame = camera_get_frame
-        self._serial = None
+
+        left_cfg = self._cfg.get("left_motor", {})
+        right_cfg = self._cfg.get("right_motor", {})
+        self._driver = L298NDriver(
+            left_in1=left_cfg.get("in1", 17),
+            left_in2=left_cfg.get("in2", 27),
+            left_ena=left_cfg.get("ena", 18),
+            right_in3=right_cfg.get("in3", 22),
+            right_in4=right_cfg.get("in4", 23),
+            right_enb=right_cfg.get("enb", 13),
+            pwm_frequency=self._cfg.get("pwm_frequency_hz", 1000),
+        )
+
         self._waypoints: list[tuple[float, float]] = []
         self._wp_index = 0
 
@@ -56,18 +63,12 @@ class UGVController(MotionInterface):
     # ------------------------------------------------------------------
 
     def connect(self) -> None:
-        import serial  # type: ignore
-
-        port = self._cfg.get("serial_port", "/dev/ttyUSB0")
-        baud = self._cfg.get("baud_rate", 115200)
-        self._serial = serial.Serial(port, baud, timeout=1.0)
-        logger.info("UGV serial connected (%s @ %d)", port, baud)
+        self._driver.connect()
+        logger.info("UGV GPIO driver connected.")
 
     def disconnect(self) -> None:
         self.stop()
-        if self._serial is not None:
-            self._serial.close()
-            self._serial = None
+        self._driver.disconnect()
 
     def load_waypoints(self, waypoints: list[tuple[float, float]]) -> None:
         """Load a list of (lat, lon) search waypoints."""
@@ -80,8 +81,8 @@ class UGVController(MotionInterface):
     # ------------------------------------------------------------------
 
     def precheck(self) -> None:
-        if self._serial is None:
-            raise RuntimeError("UGV serial not connected.")
+        if not self._driver.is_connected:
+            raise RuntimeError("UGV GPIO driver not connected.")
         logger.info("UGV precheck OK.")
 
     def start_search(self) -> None:
@@ -159,23 +160,16 @@ class UGVController(MotionInterface):
         max_lin = self._cfg.get("max_linear_speed_mps", 0.3)
         linear = max(-max_lin, min(max_lin, linear))
 
-        # Scale to PWM
-        scale = self.MAX_PWM / max_lin if max_lin > 0 else 0
-        base = linear * scale
-        turn = angular * (self.MAX_PWM / 2)
+        # Normalise to [-1, 1]
+        base = linear / max_lin if max_lin > 0 else 0.0
+        turn = angular * 0.5  # scale angular contribution
 
-        left = int(max(-self.MAX_PWM, min(self.MAX_PWM, base + turn)))
-        right = int(max(-self.MAX_PWM, min(self.MAX_PWM, base - turn)))
-        self._send_motor_command(left, right)
+        left = max(-1.0, min(1.0, base + turn))
+        right = max(-1.0, min(1.0, base - turn))
+        self._driver.set_speeds(left, right)
 
     def stop(self) -> None:
-        self._send_motor_command(0, 0)
-
-    def _send_motor_command(self, left: int, right: int) -> None:
-        if self._serial is None:
-            return
-        cmd = f"{left},{right}\n".encode()
-        self._serial.write(cmd)
+        self._driver.stop()
 
     # ------------------------------------------------------------------
     # Navigation helpers
