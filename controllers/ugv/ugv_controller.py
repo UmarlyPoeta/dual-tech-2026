@@ -160,9 +160,12 @@ class UGVController(MotionInterface):
         max_lin = self._cfg.get("max_linear_speed_mps", 0.3)
         linear = max(-max_lin, min(max_lin, linear))
 
-        # Normalise to [-1, 1]
+        # Normalize to [-1, 1]
         base = linear / max_lin if max_lin > 0 else 0.0
-        turn = angular * 0.5  # scale angular contribution
+        # Scale angular so that max_angular_speed_radps alone does not
+        # saturate the motor outputs; 0.5 keeps headroom for combined
+        # linear + angular commands.
+        turn = angular * 0.5
 
         left = max(-1.0, min(1.0, base + turn))
         right = max(-1.0, min(1.0, base - turn))
