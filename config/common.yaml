@@ -31,3 +31,10 @@ heartbeat:
   enabled: true
   port: 5001
   timeout_s: 5.0
+
+# --- Web GUI operator panel ---
+# Browser-based control panel with FPV, keyboard control, telemetry,
+# mission controls, gripper/payload buttons, and target log.
+web_gui:
+  enabled: true
+  port: 8080

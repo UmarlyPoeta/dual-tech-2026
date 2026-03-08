@@ -25,3 +25,10 @@ ugv:
 
   # Search pattern waypoints file (relative to project root)
   search_waypoints_file: "config/ugv_search_waypoints.txt"
+
+  # --- Gripper (servo-based, for picking up objects) ---
+  gripper:
+    servo_pin: 12           # BCM pin for the gripper servo
+    pwm_open: 0.1           # duty cycle for fully open
+    pwm_closed: 0.8         # duty cycle for fully closed
+    transit_time_s: 0.6     # seconds to wait for servo travel

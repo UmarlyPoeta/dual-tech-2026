@@ -9,6 +9,7 @@ from typing import Optional
 
 import numpy as np
 
+from controllers.ugv.gripper import GripperController
 from controllers.ugv.l298n_driver import L298NDriver
 from localization.pose import PoseEstimator
 from models import TargetHypothesis
@@ -55,6 +56,15 @@ class UGVController(MotionInterface):
             pwm_frequency=self._cfg.get("pwm_frequency_hz", 1000),
         )
 
+        # Gripper
+        grip_cfg = self._cfg.get("gripper", {})
+        self._gripper = GripperController(
+            servo_pin=grip_cfg.get("servo_pin", 12),
+            pwm_open=grip_cfg.get("pwm_open", 0.1),
+            pwm_closed=grip_cfg.get("pwm_closed", 0.8),
+            transit_time_s=grip_cfg.get("transit_time_s", 0.6),
+        )
+
         self._waypoints: list[tuple[float, float]] = []
         self._wp_index = 0
 
@@ -64,10 +74,12 @@ class UGVController(MotionInterface):
 
     def connect(self) -> None:
         self._driver.connect()
+        self._gripper.connect()
         logger.info("UGV GPIO driver connected.")
 
     def disconnect(self) -> None:
         self.stop()
+        self._gripper.disconnect()
         self._driver.disconnect()
 
     def load_waypoints(self, waypoints: list[tuple[float, float]]) -> None:
@@ -75,6 +87,11 @@ class UGVController(MotionInterface):
         self._waypoints = list(waypoints)
         self._wp_index = 0
         logger.info("UGV: %d waypoints loaded.", len(self._waypoints))
+
+    @property
+    def gripper(self) -> GripperController:
+        """Access the gripper controller."""
+        return self._gripper
 
     # ------------------------------------------------------------------
     # MotionInterface — lifecycle
@@ -113,11 +130,15 @@ class UGVController(MotionInterface):
         self._drive_waypoints_async()
 
     def transport_target(self, hypothesis: TargetHypothesis) -> None:
-        """Drive to drop zone and release."""
+        """Grab target with gripper, drive to drop zone, and release."""
+        # Grab the target
+        self._gripper.grab()
+
         drop_lat = self._cfg.get("drop_zone_lat", 0.0)
         drop_lon = self._cfg.get("drop_zone_lon", 0.0)
         if drop_lat == 0.0 and drop_lon == 0.0:
             logger.warning("Drop zone not configured — skipping transport.")
+            self._gripper.release()
             return
         logger.info("UGV: transporting to drop zone.")
         self._drive_to_gps(drop_lat, drop_lon)
@@ -236,5 +257,6 @@ class UGVController(MotionInterface):
         return diff
 
     def _trigger_release(self) -> None:
-        """Override to actuate the transport release mechanism."""
-        logger.info("UGV: release triggered (no-op in base implementation).")
+        """Release the gripper to drop the transported object."""
+        self._gripper.release()
+        logger.info("UGV: gripper released at drop zone.")

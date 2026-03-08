@@ -12,6 +12,7 @@ from typing import Optional
 
 import numpy as np
 
+from controllers.uav.payload_dropper import PayloadDropper
 from localization.pose import PoseEstimator
 from models import Pose, TargetHypothesis
 from motion.motion_interface import MotionInterface
@@ -51,6 +52,16 @@ class UAVController(MotionInterface):
         self._vehicle = None
         self._waypoints_exhausted = False
 
+        # Payload dropper
+        payload_cfg = self._cfg.get("payload", {})
+        self._payload = PayloadDropper(
+            vehicle=None,  # will be set after connect
+            servo_channel=payload_cfg.get("servo_channel", 10),
+            pwm_engage=payload_cfg.get("pwm_engage", 1900),
+            pwm_release=payload_cfg.get("pwm_release", 1100),
+            settle_time_s=payload_cfg.get("settle_time_s", 0.5),
+        )
+
     # ------------------------------------------------------------------
     # Connection with auto-reconnect
     # ------------------------------------------------------------------
@@ -66,6 +77,7 @@ class UAVController(MotionInterface):
         baud = self._cfg.get("baud_rate", 57600)
         logger.info("Connecting to ArduPilot: %s (baud=%d)", conn_str, baud)
         self._vehicle = dronekit.connect(conn_str, baud=baud, wait_ready=True)
+        self._payload.set_vehicle(self._vehicle)
         logger.info("Connected. Firmware: %s", self._vehicle.version)
 
     def _ensure_connected(self) -> bool:
@@ -146,17 +158,19 @@ class UAVController(MotionInterface):
         logger.info("Resumed AUTO search.")
 
     def transport_target(self, hypothesis: TargetHypothesis) -> None:
-        """Simple release-based transport: descend, release, return to search altitude."""
-        logger.info("Transport: descending to release altitude…")
-        inspect_alt = self._cfg.get("inspect_alt_m", 4.0)
+        """Pick-up with payload mechanism, carry, and release."""
+        logger.info("Transport: engaging payload and descending…")
+        self._payload.engage()
         self._send_velocity(0, 0, -1.0)  # descend
         time.sleep(3.0)
         self._send_velocity(0, 0, 0)
-        self._trigger_release()
         time.sleep(1.0)
-        self._send_velocity(0, 0, 1.0)  # climb back
+        # Climb back
+        self._send_velocity(0, 0, 1.0)
         time.sleep(3.0)
         self._send_velocity(0, 0, 0)
+        # Release
+        self._trigger_release()
         logger.info("Transport complete.")
 
     # ------------------------------------------------------------------
@@ -167,6 +181,14 @@ class UAVController(MotionInterface):
         if self._camera_get_frame is not None:
             return self._camera_get_frame()
         return None
+
+    # ------------------------------------------------------------------
+    # Public velocity API (for manual control from WebGUI)
+    # ------------------------------------------------------------------
+
+    def send_velocity(self, vx: float, vy: float, vz: float, yaw_rate: float = 0.0) -> None:
+        """Public wrapper for sending body-frame velocity commands (m/s)."""
+        self._send_velocity(vx, vy, vz, yaw_rate)
 
     # ------------------------------------------------------------------
     # MotionInterface — mission lifecycle
@@ -246,8 +268,14 @@ class UAVController(MotionInterface):
         logger.debug("Camera servo ch%d → %d µs", channel, pwm)
 
     def _trigger_release(self) -> None:
-        """Override in subclass or hook to release mechanism."""
-        logger.info("Release triggered (no-op in base implementation).")
+        """Release the payload mechanism."""
+        self._payload.release()
+        logger.info("Payload released.")
+
+    @property
+    def payload(self) -> PayloadDropper:
+        """Access the payload dropper controller."""
+        return self._payload
 
     def _center_over_target(self, hypothesis: TargetHypothesis) -> None:
         """Use PID-style image centering to hover over the detected bbox."""

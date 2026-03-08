@@ -23,6 +23,7 @@ from perception.camera import Camera
 from perception.detector import ObjectDetector
 from perception.fusion import PerceptionFusion
 from perception.qr_reader import QrReader
+from web_gui.operator_panel import OperatorPanel
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,6 +40,7 @@ def main() -> None:
     log_cfg = cfg.get("logging", {})
     stream_cfg = cfg.get("streaming", {})
     hb_cfg = cfg.get("heartbeat", {})
+    gui_cfg = cfg.get("web_gui", {})
     class_map: dict[int, str] = {int(k): v for k, v in (cfg.get("classes") or {}).items()}
     target_classes: list[str] = cfg.get("target_classes") or []
     transport_classes: list[str] = cfg.get("transport_classes") or []
@@ -108,7 +110,78 @@ def main() -> None:
             )
             heartbeat.start()
 
-        manager = MissionManager(
+        # --- Command handler for WebGUI ---
+        manager_ref = [None]  # mutable ref for closure
+
+        def _handle_command(cmd: str, args: dict) -> dict:
+            max_lin = ugv_cfg.get("max_linear_speed_mps", 0.3)
+            max_ang = ugv_cfg.get("max_angular_speed_radps", 0.5)
+            if cmd == "move_forward":
+                controller.set_velocity(max_lin, 0.0)
+            elif cmd == "move_backward":
+                controller.set_velocity(-max_lin, 0.0)
+            elif cmd == "turn_left":
+                controller.set_velocity(0.0, max_ang)
+            elif cmd == "turn_right":
+                controller.set_velocity(0.0, -max_ang)
+            elif cmd == "stop":
+                controller.stop()
+            elif cmd == "emergency_stop":
+                controller.emergency_stop()
+            elif cmd == "return_home":
+                controller.return_home()
+            elif cmd == "gripper_open":
+                controller.gripper.open()
+            elif cmd == "gripper_close":
+                controller.gripper.close()
+            elif cmd == "gripper_toggle":
+                controller.gripper.toggle()
+            elif cmd == "start_mission":
+                controller.start_search()
+            else:
+                return {"ok": False, "error": f"Unknown command: {cmd}"}
+            return {"ok": True, "cmd": cmd}
+
+        def _get_telemetry() -> dict:
+            pose = pose_estimator.get_pose()
+            mgr = manager_ref[0]
+            return {
+                "lat": pose.lat if pose else None,
+                "lon": pose.lon if pose else None,
+                "alt": pose.alt if pose else None,
+                "yaw_deg": pose.yaw_deg if pose else None,
+                "state": mgr.state_name if mgr else "INIT",
+                "target_count": registry.count(),
+                "gripper_open": controller.gripper.is_open,
+            }
+
+        def _get_targets() -> list:
+            return [
+                {
+                    "target_id": r.target_id,
+                    "class_name": r.class_name,
+                    "qr_value": r.qr_value,
+                    "lat": r.lat,
+                    "lon": r.lon,
+                    "transported": r.transported,
+                }
+                for r in registry.all_records()
+            ]
+
+        # --- Web GUI ---
+        gui = None
+        if gui_cfg.get("enabled", True):
+            gui = OperatorPanel(
+                port=gui_cfg.get("port", 8080),
+                platform="ugv",
+                stream_port=stream_cfg.get("port", 5000),
+                on_command=_handle_command,
+                get_telemetry=_get_telemetry,
+                get_targets=_get_targets,
+            )
+            gui.start()
+
+        mgr = MissionManager(
             config=mission_cfg,
             detector=detector,
             qr_reader=qr_reader,
@@ -121,10 +194,13 @@ def main() -> None:
             transport_classes=transport_classes,
             enable_transport=True,
         )
+        manager_ref[0] = mgr
 
         try:
-            manager.run(get_frame=camera.get_frame)
+            mgr.run(get_frame=camera.get_frame)
         finally:
+            if gui is not None:
+                gui.stop()
             if streamer is not None:
                 streamer.stop()
             if heartbeat is not None:

@@ -25,3 +25,10 @@ uav:
 
   # Search pattern waypoints file (relative to project root)
   search_waypoints_file: "config/uav_search_waypoints.txt"
+
+  # --- Payload dropper (servo or electromagnet for picking/dropping objects) ---
+  payload:
+    servo_channel: 10       # ArduPilot servo output channel
+    pwm_engage: 1900        # PWM to engage (hold) the payload
+    pwm_release: 1100       # PWM to release (drop) the payload
+    settle_time_s: 0.5      # seconds to wait after command
