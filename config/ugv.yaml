@@ -1,0 +1,18 @@
+ugv:
+  # Serial device for motor driver / microcontroller bridge
+  serial_port: "/dev/ttyUSB0"
+  baud_rate: 115200
+
+  # Speed limits
+  max_linear_speed_mps: 0.30
+  max_angular_speed_radps: 0.50
+
+  # Distance at which to stop and inspect a detected box (metres)
+  inspect_distance_m: 0.40
+
+  # Drop zone GPS coordinate (used for transport task)
+  drop_zone_lat: 0.0
+  drop_zone_lon: 0.0
+
+  # Search pattern waypoints file (relative to project root)
+  search_waypoints_file: "config/ugv_search_waypoints.txt"
