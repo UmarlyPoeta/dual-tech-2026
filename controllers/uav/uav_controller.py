@@ -1,4 +1,8 @@
-"""UAV controller — communicates with ArduPilot over MAVLink via dronekit."""
+"""UAV controller — communicates with ArduPilot over MAVLink via dronekit.
+
+Includes automatic reconnection on link loss so that the drone can resume
+operation after transient WiFi / serial dropouts.
+"""
 
 from __future__ import annotations
 
@@ -14,9 +18,16 @@ from motion.motion_interface import MotionInterface
 
 logger = logging.getLogger(__name__)
 
+_RECONNECT_INTERVAL_S = 3.0
+_MAX_RECONNECT_ATTEMPTS = 10
+
 
 class UAVController(MotionInterface):
     """Controls the drone via MAVLink (dronekit-python).
+
+    The controller will attempt to reconnect to the flight controller
+    automatically if the link is lost, up to ``_MAX_RECONNECT_ATTEMPTS``
+    before giving up.
 
     Parameters
     ----------
@@ -41,11 +52,14 @@ class UAVController(MotionInterface):
         self._waypoints_exhausted = False
 
     # ------------------------------------------------------------------
-    # Connection
+    # Connection with auto-reconnect
     # ------------------------------------------------------------------
 
     def connect(self) -> None:
         """Connect to the flight controller and wait for GPS fix."""
+        self._do_connect()
+
+    def _do_connect(self) -> None:
         import dronekit  # type: ignore
 
         conn_str = self._cfg.get("connection_string", "/dev/ttyAMA0")
@@ -53,6 +67,34 @@ class UAVController(MotionInterface):
         logger.info("Connecting to ArduPilot: %s (baud=%d)", conn_str, baud)
         self._vehicle = dronekit.connect(conn_str, baud=baud, wait_ready=True)
         logger.info("Connected. Firmware: %s", self._vehicle.version)
+
+    def _ensure_connected(self) -> bool:
+        """Return ``True`` if the vehicle link is alive, attempting reconnect if needed."""
+        if self._vehicle is not None:
+            try:
+                # A lightweight attribute read — if the link is dead this will raise
+                _ = self._vehicle.mode
+                return True
+            except Exception:
+                logger.warning("MAVLink link lost — attempting reconnect…")
+                try:
+                    self._vehicle.close()
+                except Exception:
+                    pass
+                self._vehicle = None
+
+        for attempt in range(1, _MAX_RECONNECT_ATTEMPTS + 1):
+            try:
+                logger.info("MAVLink reconnect attempt %d/%d", attempt, _MAX_RECONNECT_ATTEMPTS)
+                self._do_connect()
+                logger.info("MAVLink reconnected.")
+                return True
+            except Exception as exc:
+                logger.warning("Reconnect failed: %s", exc)
+                time.sleep(_RECONNECT_INTERVAL_S)
+
+        logger.error("MAVLink reconnect failed after %d attempts.", _MAX_RECONNECT_ATTEMPTS)
+        return False
 
     def disconnect(self) -> None:
         if self._vehicle is not None:
@@ -144,7 +186,7 @@ class UAVController(MotionInterface):
     def _arm_and_takeoff(self, target_altitude: float) -> None:
         import dronekit  # type: ignore
 
-        if self._vehicle is None:
+        if not self._ensure_connected():
             return
         logger.info("Arming motors…")
         self._vehicle.mode = dronekit.VehicleMode("GUIDED")
@@ -168,7 +210,7 @@ class UAVController(MotionInterface):
     def _set_mode(self, mode_name: str) -> None:
         import dronekit  # type: ignore
 
-        if self._vehicle is None:
+        if not self._ensure_connected():
             return
         self._vehicle.mode = dronekit.VehicleMode(mode_name)
         logger.info("Flight mode set to %s", mode_name)
@@ -177,7 +219,7 @@ class UAVController(MotionInterface):
         """Send a body-frame velocity command (m/s)."""
         from pymavlink import mavutil  # type: ignore
 
-        if self._vehicle is None:
+        if not self._ensure_connected():
             return
         msg = self._vehicle.message_factory.set_position_target_local_ned_encode(
             0, 0, 0,
@@ -192,7 +234,7 @@ class UAVController(MotionInterface):
 
     def _set_camera_pwm(self, pwm: int) -> None:
         channel = self._cfg.get("camera_servo_channel", 9)
-        if self._vehicle is None:
+        if not self._ensure_connected():
             return
         msg = self._vehicle.message_factory.command_long_encode(
             0, 0,

@@ -14,3 +14,20 @@ logging:
   save_annotated_frames: true
   csv_filename: "targets.csv"
   json_filename: "targets.json"
+
+# --- FPV video streaming (replaces VNC) ---
+# MJPEG over HTTP: each frame is independently decodable, works in any
+# browser, and gracefully handles weak WiFi (no frozen desktop).
+streaming:
+  enabled: true
+  port: 5000
+  jpeg_quality: 50        # 1-100; lower = less bandwidth
+  max_fps: 15
+
+# --- Operator heartbeat / connection watchdog ---
+# The vehicle monitors pings from the operator's browser.  On timeout
+# (no ping received) the vehicle can trigger an emergency stop.
+heartbeat:
+  enabled: true
+  port: 5001
+  timeout_s: 5.0

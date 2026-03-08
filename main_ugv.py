@@ -17,6 +17,8 @@ from localization.pose import PoseEstimator
 from logging_module.logger import DataLogger
 from mission.mission_manager import MissionManager
 from mission.target_registry import TargetRegistry
+from networking.heartbeat import HeartbeatMonitor
+from networking.video_streamer import VideoStreamer
 from perception.camera import Camera
 from perception.detector import ObjectDetector
 from perception.fusion import PerceptionFusion
@@ -35,6 +37,8 @@ def main() -> None:
     mission_cfg = cfg.get("mission", {})
     ugv_cfg = cfg.get("ugv", {})
     log_cfg = cfg.get("logging", {})
+    stream_cfg = cfg.get("streaming", {})
+    hb_cfg = cfg.get("heartbeat", {})
     class_map: dict[int, str] = {int(k): v for k, v in (cfg.get("classes") or {}).items()}
     target_classes: list[str] = cfg.get("target_classes") or []
     transport_classes: list[str] = cfg.get("transport_classes") or []
@@ -83,6 +87,27 @@ def main() -> None:
         camera.open()
         detector.load()
 
+        # --- FPV video stream (replaces VNC) ---
+        streamer = None
+        if stream_cfg.get("enabled", True):
+            streamer = VideoStreamer(
+                get_frame=camera.get_frame,
+                port=stream_cfg.get("port", 5000),
+                quality=stream_cfg.get("jpeg_quality", 50),
+                max_fps=stream_cfg.get("max_fps", 15),
+            )
+            streamer.start()
+
+        # --- Operator heartbeat ---
+        heartbeat = None
+        if hb_cfg.get("enabled", True):
+            heartbeat = HeartbeatMonitor(
+                port=hb_cfg.get("port", 5001),
+                timeout_s=hb_cfg.get("timeout_s", 5.0),
+                on_timeout=controller.emergency_stop,
+            )
+            heartbeat.start()
+
         manager = MissionManager(
             config=mission_cfg,
             detector=detector,
@@ -100,6 +125,10 @@ def main() -> None:
         try:
             manager.run(get_frame=camera.get_frame)
         finally:
+            if streamer is not None:
+                streamer.stop()
+            if heartbeat is not None:
+                heartbeat.stop()
             camera.close()
             controller.disconnect()
             gps_reader.stop()
