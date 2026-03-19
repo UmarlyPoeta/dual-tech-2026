@@ -15,7 +15,7 @@ pymavlink>=2.4.40
 pyserial>=3.5
 pynmea2>=1.19
 gpiozero>=2.0
-lgpio>=0.4
+lgpio==0.2.2.0
 
 # Development / testing
 pytest>=7.0

@@ -182,6 +182,18 @@ def _build_html(platform: str, stream_port: int) -> str:
         "P = payload toggle, R = release, T = transport, "
         "H = return home / RTL, E = emergency stop"
     )
+    
+    if is_ugv:
+      mech_buttons = "".join([
+          "<button class='btn-secondary' onclick=\"send('gripper_open')\">Open</button>",
+          "<button class='btn-secondary' onclick=\"send('gripper_close')\">Close</button>",
+          "<button class='btn-secondary' onclick=\"send('gripper_toggle')\">Toggle</button>",
+      ])
+    else:
+      mech_buttons = "".join([
+          "<button class='btn-secondary' onclick=\"send('payload_engage')\">Engage</button>",
+          "<button class='btn-secondary' onclick=\"send('payload_release')\">Release</button>",
+      ])
 
     return f"""\
 <!DOCTYPE html>
@@ -385,14 +397,7 @@ footer {{
     <div class="card">
       <h2>{"🦾 Gripper" if is_ugv else "📦 Payload"}</h2>
       <div class="btn-row">
-        {"".join([
-            '<button class="btn-secondary" onclick="send(\'gripper_open\')">Open</button>',
-            '<button class="btn-secondary" onclick="send(\'gripper_close\')">Close</button>',
-            '<button class="btn-secondary" onclick="send(\'gripper_toggle\')">Toggle</button>',
-        ]) if is_ugv else "".join([
-            '<button class="btn-secondary" onclick="send(\'payload_engage\')">Engage</button>',
-            '<button class="btn-secondary" onclick="send(\'payload_release\')">Release</button>',
-        ])}
+        {mech_buttons}
       </div>
       <div style="font-size:0.75rem;margin-top:4px;color:#888">
         Status: <span id="mech-status">—</span>
