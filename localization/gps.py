@@ -37,8 +37,8 @@ class GpsReader:
 
     def __init__(
         self,
-        port: str = "/dev/ttyAMA0",
-        baud_rate: int = 9600,
+        port: str = "/dev/ttyAMA10",
+        baud_rate: int = 38400,
         on_pose: Optional[Callable[[Pose], None]] = None,
     ) -> None:
         self._port = port
