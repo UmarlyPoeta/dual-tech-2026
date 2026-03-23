@@ -43,7 +43,10 @@ def main() -> None:
     stream_cfg = cfg.get("streaming", {})
     hb_cfg = cfg.get("heartbeat", {})
     gui_cfg = cfg.get("web_gui", {})
-    class_map: dict[int, str] = {int(k): v for k, v in (cfg.get("classes") or {}).items()}
+    _classes_raw = cfg.get("classes") or {}
+    if "classes" in _classes_raw:          # nowy zagnieżdżony format
+        _classes_raw = _classes_raw["classes"]
+    class_map: dict[int, str] = {int(k): v for k, v in _classes_raw.items()}
     target_classes: list[str] = cfg.get("target_classes") or []
     transport_classes: list[str] = cfg.get("transport_classes") or []
 
@@ -77,12 +80,10 @@ def main() -> None:
         controller = UGVController(
             config=ugv_cfg,
             pose_estimator=pose_estimator,
+            motor_driver=motors,
             camera_get_frame=camera.get_data,
         )
         controller.connect()
-        # Note: In a full refactor, UGVController would take 'motors' directly.
-        # For now, we manually open the motors if it's our new HAL.
-        motors.open()
 
         # --- Watchdog ---
         watchdog = SystemWatchdog(

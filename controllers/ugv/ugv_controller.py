@@ -10,7 +10,7 @@ from typing import Optional
 import numpy as np
 
 from controllers.ugv.gripper import GripperController
-from controllers.ugv.l298n_driver import L298NDriver
+from hal.base import Actuator
 from localization.pose import PoseEstimator
 from models import TargetHypothesis
 from motion.motion_interface import MotionInterface
@@ -38,23 +38,13 @@ class UGVController(MotionInterface):
         self,
         config: dict,
         pose_estimator: PoseEstimator,
+        motor_driver: Optional[Actuator] = None,
         camera_get_frame=None,
     ) -> None:
         self._cfg = config
         self._pose_estimator = pose_estimator
         self._camera_get_frame = camera_get_frame
-
-        left_cfg = self._cfg.get("left_motor", {})
-        right_cfg = self._cfg.get("right_motor", {})
-        self._driver = L298NDriver(
-            left_in1=left_cfg.get("in1", 17),
-            left_in2=left_cfg.get("in2", 27),
-            left_ena=left_cfg.get("ena", 18),
-            right_in3=right_cfg.get("in3", 22),
-            right_in4=right_cfg.get("in4", 23),
-            right_enb=right_cfg.get("enb", 13),
-            pwm_frequency=self._cfg.get("pwm_frequency_hz", 1000),
-        )
+        self._driver = motor_driver
 
         # Gripper
         grip_cfg = self._cfg.get("gripper", {})
@@ -73,14 +63,16 @@ class UGVController(MotionInterface):
     # ------------------------------------------------------------------
 
     def connect(self) -> None:
-        self._driver.connect()
+        if self._driver:
+            self._driver.open()
         self._gripper.connect()
         logger.info("UGV GPIO driver connected.")
 
     def disconnect(self) -> None:
         self.stop()
         self._gripper.disconnect()
-        self._driver.disconnect()
+        if self._driver:
+            self._driver.close()
 
     def load_waypoints(self, waypoints: list[tuple[float, float]]) -> None:
         """Load a list of (lat, lon) search waypoints."""
@@ -98,8 +90,6 @@ class UGVController(MotionInterface):
     # ------------------------------------------------------------------
 
     def precheck(self) -> None:
-        if not self._driver.is_connected:
-            raise RuntimeError("UGV GPIO driver not connected.")
         logger.info("UGV precheck OK.")
 
     def start_search(self) -> None:
@@ -190,10 +180,12 @@ class UGVController(MotionInterface):
 
         left = max(-1.0, min(1.0, base + turn))
         right = max(-1.0, min(1.0, base - turn))
-        self._driver.set_speeds(left, right)
+        if self._driver:
+            self._driver.set_state({"left": left, "right": right})
 
     def stop(self) -> None:
-        self._driver.stop()
+        if self._driver:
+            self._driver.set_state({"left": 0.0, "right": 0.0})
 
     # ------------------------------------------------------------------
     # Navigation helpers
