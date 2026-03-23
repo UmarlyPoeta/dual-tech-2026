@@ -12,13 +12,14 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from config_loader import load_config
 from controllers.uav.uav_controller import UAVController
+from hal.factory import create_camera, create_gps
 from localization.pose import PoseEstimator
 from logging_module.logger import DataLogger
 from mission.mission_manager import MissionManager
 from mission.target_registry import TargetRegistry
+from monitoring.health import HealthMonitor, SystemWatchdog
 from networking.heartbeat import HeartbeatMonitor
 from networking.video_streamer import VideoStreamer
-from perception.camera import Camera
 from perception.detector import ObjectDetector
 from perception.fusion import PerceptionFusion
 from perception.qr_reader import QrReader
@@ -36,6 +37,8 @@ def main() -> None:
 
     mission_cfg = cfg.get("mission", {})
     uav_cfg = cfg.get("uav", {})
+    hal_cfg = cfg.get("hal", {})
+    mon_cfg = cfg.get("monitoring", {})
     log_cfg = cfg.get("logging", {})
     stream_cfg = cfg.get("streaming", {})
     hb_cfg = cfg.get("heartbeat", {})
@@ -46,7 +49,19 @@ def main() -> None:
 
     model_path = Path("models/best.pt")
 
-    camera = Camera(source=0)
+    # --- Health & Watchdog ---
+    health = HealthMonitor()
+    pose_estimator = PoseEstimator()
+
+    # --- Hardware instantiation via HAL ---
+    camera = create_camera(hal_cfg.get("camera", {}), health=health)
+    # UAV usually doesn't need external GPS reader if it's via MAVLink, 
+    # but we'll instantiate it if config says so.
+    gps_reader = None
+    if "gps" in hal_cfg:
+        gps_reader = create_gps(hal_cfg["gps"], health=health, on_pose=pose_estimator.update_pose)
+        gps_reader.start()
+
     detector = ObjectDetector(
         model_path=model_path,
         class_map=class_map,
@@ -54,7 +69,6 @@ def main() -> None:
     )
     qr_reader = QrReader()
     fusion = PerceptionFusion()
-    pose_estimator = PoseEstimator()
 
     with DataLogger(log_cfg, platform="uav") as data_logger:
         registry = TargetRegistry(
@@ -65,18 +79,27 @@ def main() -> None:
         controller = UAVController(
             config=uav_cfg,
             pose_estimator=pose_estimator,
-            camera_get_frame=camera.get_frame,
+            camera_get_frame=camera.get_data,
         )
         controller.connect()
 
         camera.open()
         detector.load()
 
+        # --- Watchdog ---
+        watchdog = SystemWatchdog(
+            health_monitor=health,
+            critical_components=mon_cfg.get("critical_components", ["camera", "mission"]),
+            timeout_s=mon_cfg.get("timeout_s", 5.0),
+            on_failure=lambda comp, status: controller.emergency_stop()
+        )
+        watchdog.start()
+
         # --- FPV video stream (replaces VNC) ---
         streamer = None
         if stream_cfg.get("enabled", True):
             streamer = VideoStreamer(
-                get_frame=camera.get_frame,
+                get_frame=camera.get_data,
                 port=stream_cfg.get("port", 5000),
                 quality=stream_cfg.get("jpeg_quality", 50),
                 max_fps=stream_cfg.get("max_fps", 15),
@@ -180,6 +203,7 @@ def main() -> None:
             registry=registry,
             motion=controller,
             data_logger=data_logger,
+            health_monitor=health,
             target_classes=target_classes,
             transport_classes=transport_classes,
             enable_transport=True,
@@ -187,8 +211,9 @@ def main() -> None:
         manager_ref[0] = mgr
 
         try:
-            mgr.run(get_frame=camera.get_frame)
+            mgr.run(get_frame=camera.get_data)
         finally:
+            watchdog.stop()
             if gui is not None:
                 gui.stop()
             if streamer is not None:
@@ -197,6 +222,8 @@ def main() -> None:
                 heartbeat.stop()
             camera.close()
             controller.disconnect()
+            if gps_reader is not None:
+                gps_reader.stop()
 
     logger.info("UAV mission finished. %d targets logged.", registry.count())
 

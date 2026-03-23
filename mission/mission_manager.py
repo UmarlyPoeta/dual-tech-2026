@@ -12,6 +12,7 @@ from localization.pose import PoseEstimator
 from mission.state_machine import MissionState, StateMachine
 from mission.target_registry import TargetRegistry
 from models import Pose, TargetHypothesis
+from monitoring.health import ComponentStatus, HealthMonitor
 from perception.detector import ObjectDetector
 from perception.fusion import PerceptionFusion
 from perception.qr_reader import QrReader
@@ -43,6 +44,8 @@ class MissionManager:
         Platform motion interface implementing :class:`~motion.motion_interface.MotionInterface`.
     data_logger:
         :class:`~logging_module.logger.DataLogger` for persisting results.
+    health_monitor:
+        Optional :class:`~monitoring.health.HealthMonitor` for heartbeat reporting.
     target_classes:
         List of class labels that should be acted upon.
     transport_classes:
@@ -61,6 +64,7 @@ class MissionManager:
         registry: TargetRegistry,
         motion,
         data_logger,
+        health_monitor: Optional[HealthMonitor] = None,
         target_classes: Optional[List[str]] = None,
         transport_classes: Optional[List[str]] = None,
         enable_transport: bool = False,
@@ -73,6 +77,7 @@ class MissionManager:
         self._registry = registry
         self._motion = motion
         self._data_logger = data_logger
+        self._health = health_monitor
         self._target_classes = target_classes or []
         self._transport_classes = transport_classes or []
         self._enable_transport = enable_transport
@@ -135,6 +140,9 @@ class MissionManager:
         self._motion.start_search()
 
         while not self._sm.is_terminal():
+            if self._health:
+                self._health.heartbeat("mission", ComponentStatus.OK)
+            
             frame: Optional[np.ndarray] = get_frame()
             if frame is None:
                 time.sleep(0.05)

@@ -32,3 +32,24 @@ ugv:
     pwm_open: 0.1           # duty cycle for fully open
     pwm_closed: 0.8         # duty cycle for fully closed
     transit_time_s: 0.6     # seconds to wait for servo travel
+
+# Hardware Abstraction Layer selection
+hal:
+  camera:
+    mode: "real"  # real | mock
+    source: 0
+    width: 640
+    height: 480
+    use_picamera: true
+
+  gps:
+    mode: "real"  # real | mock | replay
+    port: "/dev/ttyAMA10"
+    baud: 38400
+
+  motors:
+    mode: "real"
+
+monitoring:
+  critical_components: ["camera", "gps", "motors", "mission"]
+  timeout_s: 5.0

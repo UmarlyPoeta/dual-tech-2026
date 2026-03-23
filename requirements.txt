@@ -14,10 +14,17 @@ pymavlink>=2.4.40
 # UGV / GPS
 pyserial>=3.5
 pynmea2>=1.19
+
+# GPIO — NIE instaluj lgpio przez pip!
+# lgpio MUSI być zainstalowany przez apt: sudo apt install python3-lgpio
+# pip install lgpio zawsze pada (brak liblgpio.so lub zły Python)
 gpiozero>=2.0
-lgpio==0.2.2.0
+
+# Camera
+# picamera2 MUSI być z apt: sudo apt install python3-picamera2
+# lub z pip po zainstalowaniu: libcap-dev python3-kms++ python3-libcamera
+picamera2
 
 # Development / testing
 pytest>=7.0
 pytest-cov>=4.0
-picamera2

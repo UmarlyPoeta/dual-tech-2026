@@ -12,14 +12,14 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from config_loader import load_config
 from controllers.ugv.ugv_controller import UGVController
-from localization.gps import GpsReader
+from hal.factory import create_camera, create_gps, create_motors
 from localization.pose import PoseEstimator
 from logging_module.logger import DataLogger
 from mission.mission_manager import MissionManager
 from mission.target_registry import TargetRegistry
+from monitoring.health import HealthMonitor, SystemWatchdog
 from networking.heartbeat import HeartbeatMonitor
 from networking.video_streamer import VideoStreamer
-from perception.camera import Camera
 from perception.detector import ObjectDetector
 from perception.fusion import PerceptionFusion
 from perception.qr_reader import QrReader
@@ -37,6 +37,8 @@ def main() -> None:
 
     mission_cfg = cfg.get("mission", {})
     ugv_cfg = cfg.get("ugv", {})
+    hal_cfg = cfg.get("hal", {})
+    mon_cfg = cfg.get("monitoring", {})
     log_cfg = cfg.get("logging", {})
     stream_cfg = cfg.get("streaming", {})
     hb_cfg = cfg.get("heartbeat", {})
@@ -47,7 +49,15 @@ def main() -> None:
 
     model_path = Path("models/best.pt")
 
-    camera = Camera(source=0)
+    # --- Health & Watchdog ---
+    health = HealthMonitor()
+    pose_estimator = PoseEstimator()
+
+    # --- Hardware instantiation via HAL ---
+    camera = create_camera(hal_cfg.get("camera", {}), health=health)
+    gps_reader = create_gps(hal_cfg.get("gps", {}), health=health, on_pose=pose_estimator.update_pose)
+    motors = create_motors(hal_cfg.get("motors", {}), ugv_cfg, health=health)
+
     detector = ObjectDetector(
         model_path=model_path,
         class_map=class_map,
@@ -55,10 +65,7 @@ def main() -> None:
     )
     qr_reader = QrReader()
     fusion = PerceptionFusion()
-    pose_estimator = PoseEstimator()
 
-    # GPS reader feeds pose estimator via callback
-    gps_reader = GpsReader(on_pose=pose_estimator.update_pose)
     gps_reader.start()
 
     with DataLogger(log_cfg, platform="ugv") as data_logger:
@@ -70,9 +77,21 @@ def main() -> None:
         controller = UGVController(
             config=ugv_cfg,
             pose_estimator=pose_estimator,
-            camera_get_frame=camera.get_frame,
+            camera_get_frame=camera.get_data,
         )
         controller.connect()
+        # Note: In a full refactor, UGVController would take 'motors' directly.
+        # For now, we manually open the motors if it's our new HAL.
+        motors.open()
+
+        # --- Watchdog ---
+        watchdog = SystemWatchdog(
+            health_monitor=health,
+            critical_components=mon_cfg.get("critical_components", ["camera", "gps", "mission"]),
+            timeout_s=mon_cfg.get("timeout_s", 5.0),
+            on_failure=lambda comp, status: controller.emergency_stop()
+        )
+        watchdog.start()
 
         # Load search waypoints if available
         wp_file = Path(ugv_cfg.get("search_waypoints_file", "config/ugv_search_waypoints.txt"))
@@ -93,7 +112,7 @@ def main() -> None:
         streamer = None
         if stream_cfg.get("enabled", True):
             streamer = VideoStreamer(
-                get_frame=camera.get_frame,
+                get_frame=camera.get_data,
                 port=stream_cfg.get("port", 5000),
                 quality=stream_cfg.get("jpeg_quality", 50),
                 max_fps=stream_cfg.get("max_fps", 15),
@@ -190,6 +209,7 @@ def main() -> None:
             registry=registry,
             motion=controller,
             data_logger=data_logger,
+            health_monitor=health,
             target_classes=target_classes,
             transport_classes=transport_classes,
             enable_transport=True,
@@ -197,8 +217,9 @@ def main() -> None:
         manager_ref[0] = mgr
 
         try:
-            mgr.run(get_frame=camera.get_frame)
+            mgr.run(get_frame=camera.get_data)
         finally:
+            watchdog.stop()
             if gui is not None:
                 gui.stop()
             if streamer is not None:
@@ -206,6 +227,7 @@ def main() -> None:
             if heartbeat is not None:
                 heartbeat.stop()
             camera.close()
+            motors.close()
             controller.disconnect()
             gps_reader.stop()
 

@@ -32,3 +32,21 @@ uav:
     pwm_engage: 1900        # PWM to engage (hold) the payload
     pwm_release: 1100       # PWM to release (drop) the payload
     settle_time_s: 0.5      # seconds to wait after command
+
+# Hardware Abstraction Layer selection
+hal:
+  camera:
+    mode: "real"  # real | mock
+    source: 0
+    width: 640
+    height: 480
+    use_picamera: true
+
+  gps:
+    mode: "real"  # real | mock | replay
+    port: "/dev/ttyAMA10"
+    baud: 38400
+
+monitoring:
+  critical_components: ["camera", "gps", "mission"]
+  timeout_s: 5.0
