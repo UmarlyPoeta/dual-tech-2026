@@ -1,14 +1,19 @@
-"""Health monitoring — heartbeat registry and system watchdog."""
+"""Health monitoring — heartbeat registry, system watchdog, and thermal management."""
 
 from __future__ import annotations
 
 import enum
 import logging
+import os
 import threading
 import time
+from pathlib import Path
 from typing import Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
+
+_THERMAL_ZONE = Path("/sys/class/thermal/thermal_zone0/temp")
+_THERMAL_STATE_FILE = Path("logs/.thermal_state")
 
 
 class ComponentStatus(enum.Enum):
@@ -23,12 +28,16 @@ class HealthMonitor:
 
     Components (e.g. Camera, GPS, Mission) report their status and a
     timestamped heartbeat to this monitor.
+
+    Also tracks CPU temperature for thermal throttle decisions.
     """
 
     def __init__(self) -> None:
         self._statuses: Dict[str, ComponentStatus] = {}
         self._last_heartbeats: Dict[str, float] = {}
         self._lock = threading.Lock()
+        self._thermal_throttle = False
+        self._cpu_temp_c: Optional[float] = None
 
     def heartbeat(self, name: str, status: ComponentStatus = ComponentStatus.OK) -> None:
         """Report component heartbeat and status."""
@@ -60,6 +69,84 @@ class HealthMonitor:
                 else:
                     results[name] = status
             return results
+
+    # ------------------------------------------------------------------
+    # Thermal management
+    # ------------------------------------------------------------------
+
+    @property
+    def thermal_throttle(self) -> bool:
+        """True if the CPU is too hot and inference should be throttled."""
+        return self._thermal_throttle
+
+    @property
+    def cpu_temp_c(self) -> Optional[float]:
+        return self._cpu_temp_c
+
+    def update_thermal(self) -> None:
+        """Read CPU temperature and update throttle state.
+
+        Called periodically by :class:`SystemWatchdog` or the systemd
+        thermal timer.
+        """
+        temp = self._read_cpu_temp()
+        if temp is None:
+            # Try reading the file written by dualtech-thermal.service
+            temp = self._read_thermal_state_file()
+            if temp is not None:
+                return  # State was set from file
+
+        if temp is None:
+            return
+
+        self._cpu_temp_c = temp
+
+        if temp >= 85.0:
+            if not self._thermal_throttle:
+                logger.critical("CPU temperature %.1f C — CRITICAL, heavy throttling", temp)
+            self._thermal_throttle = True
+        elif temp >= 80.0:
+            if not self._thermal_throttle:
+                logger.warning("CPU temperature %.1f C — throttling inference", temp)
+            self._thermal_throttle = True
+        else:
+            if self._thermal_throttle:
+                logger.info("CPU temperature %.1f C — resuming normal operation", temp)
+            self._thermal_throttle = False
+
+    def _read_cpu_temp(self) -> Optional[float]:
+        try:
+            return int(_THERMAL_ZONE.read_text().strip()) / 1000.0
+        except Exception:
+            return None
+
+    def _read_thermal_state_file(self) -> Optional[float]:
+        """Read state from the systemd thermal timer output."""
+        try:
+            state = _THERMAL_STATE_FILE.read_text().strip()
+            if state == "CRITICAL":
+                self._thermal_throttle = True
+                self._cpu_temp_c = 85.0
+            elif state == "THROTTLE":
+                self._thermal_throttle = True
+                self._cpu_temp_c = 80.0
+            elif state == "OK":
+                self._thermal_throttle = False
+            return self._cpu_temp_c
+        except Exception:
+            return None
+
+    # ------------------------------------------------------------------
+    # Disk space
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def check_disk_space(path: str = ".") -> Dict[str, float]:
+        """Return disk usage stats in GB."""
+        stat = os.statvfs(path)
+        total = (stat.f_blocks * stat.f_frsize) / (1024 ** 3)
+        free = (stat.f_bavail * stat.f_frsize) / (1024 ** 3)
+        return {"total_gb": round(total, 1), "free_gb": round(free, 1), "used_pct": round((1 - free / total) * 100, 1)}
 
 
 class SystemWatchdog:
@@ -107,8 +194,9 @@ class SystemWatchdog:
         logger.info("System watchdog stopped.")
 
     def _run(self) -> None:
+        thermal_counter = 0
+        disk_counter = 0
         while self._running:
-            # Check more frequently than the timeout
             time.sleep(min(1.0, self._timeout_s / 2.0))
             statuses = self._health.get_all_statuses(self._timeout_s)
             
@@ -121,7 +209,22 @@ class SystemWatchdog:
                             self._on_failure(comp, status)
                         except Exception:
                             logger.exception("Error in watchdog on_failure callback")
-                    
-                    # Prevent multiple callbacks for the same failure
-                    # self.stop() 
-                    # Usually we want it to keep monitoring or we exit the program
+
+            # Thermal check every ~10 seconds
+            thermal_counter += 1
+            if thermal_counter >= 10:
+                thermal_counter = 0
+                self._health.update_thermal()
+
+            # Disk space check every ~60 seconds
+            disk_counter += 1
+            if disk_counter >= 60:
+                disk_counter = 0
+                try:
+                    disk = HealthMonitor.check_disk_space()
+                    if disk["free_gb"] < 0.5:
+                        logger.critical("Watchdog: Disk almost full! %.1f GB free", disk["free_gb"])
+                    elif disk["free_gb"] < 1.0:
+                        logger.warning("Watchdog: Low disk space: %.1f GB free", disk["free_gb"])
+                except Exception:
+                    pass

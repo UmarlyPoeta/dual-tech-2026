@@ -12,13 +12,15 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from config_loader import load_config
 from controllers.ugv.ugv_controller import UGVController
-from hal.factory import create_camera, create_gps, create_motors
+from controllers.ugv.arm_controller import ArmController
+from hal.factory import create_camera, create_gps, create_motors, create_servo, create_stepper
 from localization.pose import PoseEstimator
 from logging_module.logger import DataLogger
 from mission.mission_manager import MissionManager
 from mission.target_registry import TargetRegistry
 from monitoring.health import HealthMonitor, SystemWatchdog
 from networking.heartbeat import HeartbeatMonitor
+from networking.foxglove_bridge import FoxgloveBridge
 from networking.video_streamer import VideoStreamer
 from perception.detector import ObjectDetector
 from perception.fusion import PerceptionFusion
@@ -43,6 +45,7 @@ def main() -> None:
     stream_cfg = cfg.get("streaming", {})
     hb_cfg = cfg.get("heartbeat", {})
     gui_cfg = cfg.get("web_gui", {})
+    foxglove_cfg = cfg.get("foxglove", {})
     _classes_raw = cfg.get("classes") or {}
     if "classes" in _classes_raw:          # nowy zagnieżdżony format
         _classes_raw = _classes_raw["classes"]
@@ -130,6 +133,64 @@ def main() -> None:
             )
             heartbeat.start()
 
+        # --- Arm controller (servo + stepper) ---
+        arm = None
+        hw_params_path = Path("configs/hw_params.yaml")
+        if hw_params_path.exists():
+            import yaml
+            with open(hw_params_path) as _f:
+                hw_params = yaml.safe_load(_f) or {}
+            servos_cfg = hw_params.get("servos", {})
+            steppers_cfg = hw_params.get("steppers", {})
+            try:
+                cam_servo = create_servo(servos_cfg.get("camera_tilt", {"mode": "mock"}), health=health) if "camera_tilt" in servos_cfg else None
+                wrist_servo = create_servo(servos_cfg.get("arm_wrist", {"mode": "mock"}), health=health) if "arm_wrist" in servos_cfg else None
+                grip_servo = create_servo(servos_cfg.get("gripper", {"mode": "mock"}), health=health) if "gripper" in servos_cfg else None
+                arm_stepper = create_stepper(steppers_cfg.get("arm_linear", {"mode": "mock"}), health=health) if "arm_linear" in steppers_cfg else None
+                arm = ArmController(
+                    arm_stepper=arm_stepper,
+                    wrist_servo=wrist_servo,
+                    camera_servo=cam_servo,
+                    grip_servo=grip_servo,
+                )
+                arm.connect()
+                logger.info("Arm controller initialized.")
+            except Exception:
+                logger.warning("Arm controller init failed — running without arm.", exc_info=True)
+                arm = None
+
+        # --- Foxglove bridge ---
+        foxglove = None
+        if foxglove_cfg.get("enabled", False):
+            def _get_jpeg() -> bytes | None:
+                frame = camera.get_data()
+                if frame is None:
+                    return None
+                import cv2
+                _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 50])
+                return buf.tobytes()
+
+            foxglove = FoxgloveBridge(
+                port=foxglove_cfg.get("port", 8765),
+                get_telemetry=lambda: {
+                    "lat": (p := pose_estimator.get_pose()) and p.lat,
+                    "lon": p and p.lon,
+                    "alt": p and p.alt,
+                    "yaw_deg": p and p.yaw_deg,
+                    "state": (manager_ref[0].state_name if manager_ref[0] else "INIT"),
+                    "target_count": registry.count(),
+                },
+                get_health=lambda: {
+                    "components": {k: v.value for k, v in health.get_all_statuses().items()},
+                },
+                get_frame_jpeg=_get_jpeg,
+                telemetry_hz=foxglove_cfg.get("telemetry_hz", 2.0),
+                health_hz=foxglove_cfg.get("health_hz", 1.0),
+                camera_hz=foxglove_cfg.get("camera_hz", 5.0),
+            )
+            foxglove.start()
+            logger.info("Foxglove bridge started on port %d", foxglove_cfg.get("port", 8765))
+
         # --- Command handler for WebGUI ---
         manager_ref = [None]  # mutable ref for closure
 
@@ -158,6 +219,10 @@ def main() -> None:
                 controller.gripper.toggle()
             elif cmd == "start_mission":
                 controller.start_search()
+            elif cmd.startswith("arm_") or cmd.startswith("wrist_") or cmd.startswith("camera_") or cmd.startswith("grip_"):
+                if arm is not None:
+                    return arm.handle_command(cmd, args)
+                return {"ok": False, "error": "Arm controller not available"}
             else:
                 return {"ok": False, "error": f"Unknown command: {cmd}"}
             return {"ok": True, "cmd": cmd}
@@ -223,10 +288,14 @@ def main() -> None:
             watchdog.stop()
             if gui is not None:
                 gui.stop()
+            if foxglove is not None:
+                foxglove.stop()
             if streamer is not None:
                 streamer.stop()
             if heartbeat is not None:
                 heartbeat.stop()
+            if arm is not None:
+                arm.disconnect()
             camera.close()
             motors.close()
             controller.disconnect()

@@ -8,6 +8,8 @@ from typing import Any, Dict, Optional
 from hal.camera import CameraInterface, RealCamera, MockCamera
 from hal.gps import GpsInterface, RealGps, MockGps, ReplayGps
 from hal.gpio import GpioInterface, RealGpioMotor, MockGpioMotor
+from hal.servo import ServoInterface, PigpioServo, GpiozeroServo, MockServo
+from hal.stepper import StepperInterface, GpiodStepper, MockStepper
 from monitoring.health import HealthMonitor
 
 logger = logging.getLogger(__name__)
@@ -61,3 +63,67 @@ def create_motors(cfg: Dict[str, Any], platform_cfg: Dict[str, Any], health: Opt
         "right_enb": right.get("enb", 13),
     }
     return RealGpioMotor(pins=pins, pwm_frequency=platform_cfg.get("pwm_frequency_hz", 1000), health_monitor=health)
+
+
+def create_servo(cfg: Dict[str, Any], health: Optional[HealthMonitor] = None) -> ServoInterface:
+    """Create a servo actuator (pigpio preferred, gpiozero fallback, mock for testing)."""
+    mode = cfg.get("mode", "real")
+    name = cfg.get("name", "servo")
+    kwargs = {
+        "pin": cfg.get("pin", 18),
+        "min_pulse_us": cfg.get("min_pulse_us", 500),
+        "max_pulse_us": cfg.get("max_pulse_us", 2500),
+        "min_angle_deg": cfg.get("min_angle_deg", 0.0),
+        "max_angle_deg": cfg.get("max_angle_deg", 180.0),
+        "default_angle_deg": cfg.get("default_angle_deg", 90.0),
+        "name": name,
+        "health_monitor": health,
+    }
+
+    if mode == "mock":
+        return MockServo(name=name, health_monitor=health, **kwargs)
+
+    # Try pigpio first (hardware PWM), fall back to gpiozero
+    try:
+        import pigpio  # type: ignore  # noqa: F401
+        servo = PigpioServo(**kwargs)
+        logger.info("Using pigpio for servo '%s'", name)
+        return servo
+    except ImportError:
+        logger.info("pigpio not available for servo '%s' — using gpiozero fallback", name)
+        return GpiozeroServo(
+            pin=kwargs["pin"],
+            min_angle_deg=kwargs["min_angle_deg"],
+            max_angle_deg=kwargs["max_angle_deg"],
+            default_angle_deg=kwargs["default_angle_deg"],
+            name=name,
+            health_monitor=health,
+        )
+
+
+def create_stepper(cfg: Dict[str, Any], health: Optional[HealthMonitor] = None) -> StepperInterface:
+    """Create a stepper motor actuator (gpiod real driver or mock)."""
+    mode = cfg.get("mode", "real")
+    name = cfg.get("name", "stepper")
+
+    if mode == "mock":
+        return MockStepper(
+            name=name,
+            health_monitor=health,
+            min_position=cfg.get("min_position", 0),
+            max_position=cfg.get("max_position", 10000),
+        )
+
+    return GpiodStepper(
+        step_pin=cfg.get("step_pin", 20),
+        dir_pin=cfg.get("dir_pin", 21),
+        enable_pin=cfg.get("enable_pin", -1),
+        steps_per_rev=cfg.get("steps_per_rev", 200),
+        max_speed_sps=cfg.get("max_speed_sps", 800),
+        acceleration_sps2=cfg.get("acceleration_sps2", 2000),
+        min_position=cfg.get("min_position", 0),
+        max_position=cfg.get("max_position", 10000),
+        gpiochip=cfg.get("gpiochip", "gpiochip4"),
+        name=name,
+        health_monitor=health,
+    )

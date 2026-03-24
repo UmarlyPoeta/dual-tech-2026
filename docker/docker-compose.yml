@@ -1,0 +1,75 @@
+# =============================================================================
+# docker-compose.yml — Dual Tech 2026
+#
+# Usage:
+#   PLATFORM=ugv docker compose -f docker/docker-compose.yml up -d
+#   PLATFORM=uav docker compose -f docker/docker-compose.yml up -d
+# =============================================================================
+
+services:
+  core:
+    build:
+      context: ..
+      dockerfile: docker/RPi5.Dockerfile
+    image: dualtech:latest
+    container_name: dualtech-core
+    privileged: true
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      - PLATFORM=${PLATFORM:-ugv}
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ../configs:/app/configs:ro
+      - ../config:/app/config:ro
+      - ../models:/app/models:ro
+      - ../logs:/app/logs
+      - /dev:/dev
+      - /sys:/sys:ro
+      - /run/pigpio.sock:/run/pigpio.sock
+    devices:
+      - /dev/gpiochip0:/dev/gpiochip0
+      - /dev/gpiochip4:/dev/gpiochip4
+      - /dev/gpiomem:/dev/gpiomem
+    group_add:
+      - video
+      - gpio
+      - dialout
+      - i2c
+    tmpfs:
+      - /tmp:size=128M
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/api/health"]
+      interval: 10s
+      timeout: 3s
+      start_period: 15s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  foxglove_bridge:
+    build:
+      context: ..
+      dockerfile: docker/RPi5.Dockerfile
+    image: dualtech:latest
+    container_name: dualtech-foxglove
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["python3", "networking/foxglove_bridge.py", "--port", "8765"]
+    volumes:
+      - ../configs:/app/configs:ro
+      - ../config:/app/config:ro
+      - ../logs:/app/logs
+    depends_on:
+      core:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"

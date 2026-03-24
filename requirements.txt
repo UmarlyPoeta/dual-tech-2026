@@ -25,6 +25,16 @@ pynmea2>=1.19
 # lub z pip po zainstalowaniu: libcap-dev python3-kms++ python3-libcamera
 #picamera2
 
+# CLI
+click>=8.0                # dualtech CLI tool
+
+# Foxglove bridge
+websockets>=12.0          # WebSocket server for Foxglove Studio
+
+# GPIO — NIE instaluj lgpio/gpiod przez pip!
+# pigpio/gpiod MUSZĄ być zainstalowane przez apt: sudo apt install pigpio python3-pigpio python3-libgpiod
+# bootstrap.sh handles this automatically.
+
 # Development / testing
 pytest>=7.0
 pytest-cov>=4.0

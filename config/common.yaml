@@ -14,6 +14,7 @@ logging:
   save_annotated_frames: true
   csv_filename: "targets.csv"
   json_filename: "targets.json"
+  max_sessions: 5             # keep N most recent log sessions per platform
 
 # --- FPV video streaming (replaces VNC) ---
 # MJPEG over HTTP: each frame is independently decodable, works in any
@@ -38,3 +39,20 @@ heartbeat:
 web_gui:
   enabled: true
   port: 8080
+
+# --- Foxglove Studio telemetry bridge ---
+# Streams telemetry, detections, health, and camera to Foxglove Studio
+# via WebSocket protocol.  Connect with: ws://<rpi-ip>:8765
+foxglove:
+  enabled: false              # set to true to activate
+  port: 8765
+  telemetry_hz: 2.0
+  health_hz: 1.0
+  camera_hz: 5.0
+
+# --- Thermal management ---
+# Watchdog reads CPU temperature and throttles inference when hot.
+thermal:
+  throttle_temp_c: 80.0       # start reducing YOLO FPS above this
+  critical_temp_c: 85.0       # log critical warning above this
+  throttle_skip_frames: 3     # process every Nth frame when throttled

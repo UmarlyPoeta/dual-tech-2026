@@ -18,6 +18,7 @@ from logging_module.logger import DataLogger
 from mission.mission_manager import MissionManager
 from mission.target_registry import TargetRegistry
 from monitoring.health import HealthMonitor, SystemWatchdog
+from networking.foxglove_bridge import FoxgloveBridge
 from networking.heartbeat import HeartbeatMonitor
 from networking.video_streamer import VideoStreamer
 from perception.detector import ObjectDetector
@@ -43,6 +44,7 @@ def main() -> None:
     stream_cfg = cfg.get("streaming", {})
     hb_cfg = cfg.get("heartbeat", {})
     gui_cfg = cfg.get("web_gui", {})
+    foxglove_cfg = cfg.get("foxglove", {})
     class_map: dict[int, str] = {int(k): v for k, v in (cfg.get("classes") or {}).items()}
     target_classes: list[str] = cfg.get("target_classes") or []
     transport_classes: list[str] = cfg.get("transport_classes") or []
@@ -115,6 +117,38 @@ def main() -> None:
                 on_timeout=controller.emergency_stop,
             )
             heartbeat.start()
+
+        # --- Foxglove bridge ---
+        foxglove = None
+        if foxglove_cfg.get("enabled", False):
+            def _get_jpeg() -> bytes | None:
+                frame = camera.get_data()
+                if frame is None:
+                    return None
+                import cv2
+                _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 50])
+                return buf.tobytes()
+
+            foxglove = FoxgloveBridge(
+                port=foxglove_cfg.get("port", 8765),
+                get_telemetry=lambda: {
+                    "lat": (p := pose_estimator.get_pose()) and p.lat,
+                    "lon": p and p.lon,
+                    "alt": p and p.alt,
+                    "yaw_deg": p and p.yaw_deg,
+                    "state": (manager_ref[0].state_name if manager_ref[0] else "INIT"),
+                    "target_count": registry.count(),
+                },
+                get_health=lambda: {
+                    "components": {k: v.value for k, v in health.get_all_statuses().items()},
+                },
+                get_frame_jpeg=_get_jpeg,
+                telemetry_hz=foxglove_cfg.get("telemetry_hz", 2.0),
+                health_hz=foxglove_cfg.get("health_hz", 1.0),
+                camera_hz=foxglove_cfg.get("camera_hz", 5.0),
+            )
+            foxglove.start()
+            logger.info("Foxglove bridge started on port %d", foxglove_cfg.get("port", 8765))
 
         # --- Command handler for WebGUI ---
         manager_ref = [None]
@@ -216,6 +250,8 @@ def main() -> None:
             watchdog.stop()
             if gui is not None:
                 gui.stop()
+            if foxglove is not None:
+                foxglove.stop()
             if streamer is not None:
                 streamer.stop()
             if heartbeat is not None:

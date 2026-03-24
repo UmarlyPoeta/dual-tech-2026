@@ -1,0 +1,58 @@
+# =============================================================================
+# hw_params.yaml — Hardware calibration parameters
+#
+# Generated / updated by: python cli/dualtech.py calibrate
+# Manual edits are fine — values are loaded at startup.
+# =============================================================================
+
+servos:
+  camera_tilt:
+    mode: "real"            # real | mock
+    name: "camera_tilt"
+    pin: 18                 # BCM GPIO pin (SG90)
+    min_pulse_us: 500
+    max_pulse_us: 2400
+    min_angle_deg: 0.0
+    max_angle_deg: 180.0
+    default_angle_deg: 90.0   # forward-looking
+
+  arm_wrist:
+    mode: "real"
+    name: "arm_wrist"
+    pin: 19                 # BCM GPIO pin (MG995)
+    min_pulse_us: 500
+    max_pulse_us: 2500
+    min_angle_deg: 0.0
+    max_angle_deg: 180.0
+    default_angle_deg: 90.0
+
+  gripper:
+    mode: "real"
+    name: "gripper_servo"
+    pin: 12                 # BCM GPIO pin (SG90)
+    min_pulse_us: 500
+    max_pulse_us: 2400
+    min_angle_deg: 0.0       # fully open
+    max_angle_deg: 180.0     # fully closed
+    default_angle_deg: 0.0   # open at startup
+
+steppers:
+  arm_linear:
+    mode: "real"
+    name: "arm_stepper"
+    step_pin: 20            # BCM GPIO
+    dir_pin: 21             # BCM GPIO
+    enable_pin: 16          # BCM GPIO (-1 to disable)
+    gpiochip: "gpiochip4"   # RPi5 user GPIO
+    steps_per_rev: 200      # 1.8-degree motor
+    max_speed_sps: 800      # steps per second
+    acceleration_sps2: 2000 # steps/sec^2
+    min_position: 0         # software endstop (retracted)
+    max_position: 5000      # software endstop (extended)
+
+# Camera intrinsic calibration (populated by `dualtech calibrate --camera`)
+camera_calibration:
+  calibrated: false
+  matrix: null
+  distortion: null
+  resolution: [640, 480]
