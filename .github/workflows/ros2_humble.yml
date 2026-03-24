@@ -1,0 +1,38 @@
+name: ROS2 organizer scaffold
+
+on:
+  push:
+    paths:
+      - "ros2_ws/**"
+      - ".github/workflows/ros2_humble.yml"
+  pull_request:
+    paths:
+      - "ros2_ws/**"
+      - ".github/workflows/ros2_humble.yml"
+
+jobs:
+  colcon-build:
+    runs-on: ubuntu-latest
+    container:
+      image: ros:humble-ros-base-jammy
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            python3-colcon-common-extensions \
+            python3-rosdep
+          rosdep update
+
+      - name: rosdep install
+        working-directory: ros2_ws
+        run: |
+          rosdep install --from-paths src --ignore-src -r -y
+
+      - name: colcon build
+        working-directory: ros2_ws
+        run: |
+          . /opt/ros/humble/setup.bash
+          colcon build --symlink-install

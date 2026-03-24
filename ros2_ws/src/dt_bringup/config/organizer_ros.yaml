@@ -1,0 +1,14 @@
+# PLACEHOLDER — copy topic names and parameters from the official organizer ROS spec.
+# After editing, rebuild: cd ros2_ws && colcon build --packages-select dt_bringup --symlink-install
+#
+# ROS_DOMAIN_ID must match the competition network (often exported in environment).
+
+dt_organizer_bridge:
+  ros__parameters:
+    stub_mode: true
+    publish_rate_hz: 1.0
+    object_topic: "/dualtech/placeholder/organizers/object_detected"
+    telemetry_topic: "/dualtech/placeholder/organizers/mission_telemetry"
+    status_topic: "/dualtech/placeholder/organizers/bridge_status"
+    frame_id: "camera_optical_frame"
+    platform: "ugv"

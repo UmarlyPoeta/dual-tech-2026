@@ -16,7 +16,15 @@ dual-tech-2026/
 │   ├── common.yaml             # Shared mission settings
 │   ├── uav.yaml                # UAV / ArduPilot settings
 │   ├── ugv.yaml                # UGV / motor driver settings
-│   └── classes.yaml            # YOLO class map and target lists
+│   ├── classes.yaml            # YOLO class map and target lists
+│   └── organizer_ros.yaml      # Mirror of ROS2 bridge params (see ros2_ws)
+├── ros2_ws/                    # ROS 2 Humble workspace (organizer bridge scaffold)
+│   └── src/
+│       ├── dt_interfaces/      # Placeholder .msg types for jury topics
+│       ├── dt_organizer_bridge/# Stub publishers → replace names per spec
+│       └── dt_bringup/         # organizer_bridge.launch.py + config
+├── scripts/
+│   └── run_organizer_bridge.sh # Source Humble + colcon build + launch
 ├── perception/                 # Vision pipeline
 │   ├── camera.py               # OpenCV VideoCapture wrapper
 │   ├── detector.py             # Ultralytics YOLO object detector
@@ -45,6 +53,14 @@ dual-tech-2026/
 ├── requirements.txt
 └── tests/                      # pytest test suite
 ```
+
+### ROS 2 — organizer-facing topics (scaffold)
+
+The competition may require specific ROS 2 topic names and message types. This repo includes a **placeholder bridge** that publishes stub messages so you can verify DDS / `ROS_DOMAIN_ID` / tooling before wiring real data from `main_uav.py` / `main_ugv.py`.
+
+- Edit topic names in [`ros2_ws/src/dt_bringup/config/organizer_ros.yaml`](ros2_ws/src/dt_bringup/config/organizer_ros.yaml) (and keep [`config/organizer_ros.yaml`](config/organizer_ros.yaml) in sync for reference).
+- Build and run: [`ros2_ws/README.md`](ros2_ws/README.md) or `./scripts/run_organizer_bridge.sh` on a machine with ROS 2 Humble.
+- Replace `dt_interfaces/msg/*.msg` with organizer-supplied types if they publish a package.
 
 ---
 
