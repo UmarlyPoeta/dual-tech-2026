@@ -1,6 +1,7 @@
 # =============================================================================
 # hw_params.yaml — Hardware calibration parameters
 #
+# Canonical location (SSOT): config/hardware/hw_params.yaml
 # Generated / updated by: python cli/dualtech.py calibrate
 # Manual edits are fine — values are loaded at startup.
 # =============================================================================

@@ -28,4 +28,8 @@ ros2 launch dt_bringup organizer_bridge.launch.py
 
 ## Next steps
 
-Wire `organizer_bridge_node` to `main_uav.py` / `main_ugv.py` (e.g. timer off, `stub_mode: false`, publish from mission callbacks). Replace topic names in `organizer_ros.yaml` with the official list from the competition document.
+Wire `organizer_bridge_node` to `main_uav.py` / `main_ugv.py` (e.g. timer off, `stub_mode: false`, publish from mission callbacks). Replace topic names in `organizer_ros.yaml` with the official list from the competition document, then sync the mirror with:
+
+```bash
+python scripts/sync_organizer_config.py
+```

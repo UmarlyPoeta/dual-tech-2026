@@ -6,7 +6,7 @@ Coordinates multi-axis movement:
   - SG90 servo for camera tilt
 
 Commands are dispatched from the web GUI or CLI.  All movements enforce
-software limits loaded from ``configs/hw_params.yaml``.
+software limits loaded from ``config/hardware/hw_params.yaml``.
 """
 
 from __future__ import annotations

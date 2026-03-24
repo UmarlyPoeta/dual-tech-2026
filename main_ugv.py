@@ -135,11 +135,8 @@ def main() -> None:
 
         # --- Arm controller (servo + stepper) ---
         arm = None
-        hw_params_path = Path("configs/hw_params.yaml")
-        if hw_params_path.exists():
-            import yaml
-            with open(hw_params_path) as _f:
-                hw_params = yaml.safe_load(_f) or {}
+        hw_params = cfg.get("hardware", {}).get("params", {}) or {}
+        if hw_params:
             servos_cfg = hw_params.get("servos", {})
             steppers_cfg = hw_params.get("steppers", {})
             try:

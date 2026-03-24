@@ -17,7 +17,9 @@ dual-tech-2026/
 │   ├── uav.yaml                # UAV / ArduPilot settings
 │   ├── ugv.yaml                # UGV / motor driver settings
 │   ├── classes.yaml            # YOLO class map and target lists
-│   └── organizer_ros.yaml      # Mirror of ROS2 bridge params (see ros2_ws)
+│   ├── hardware/
+│   │   └── hw_params.yaml      # Hardware calibration (SSOT)
+│   └── organizer_ros.yaml      # Auto-generated mirror of ROS2 organizer params
 ├── ros2_ws/                    # ROS 2 Humble workspace (organizer bridge scaffold)
 │   └── src/
 │       ├── dt_interfaces/      # Placeholder .msg types for jury topics
@@ -58,7 +60,7 @@ dual-tech-2026/
 
 The competition may require specific ROS 2 topic names and message types. This repo includes a **placeholder bridge** that publishes stub messages so you can verify DDS / `ROS_DOMAIN_ID` / tooling before wiring real data from `main_uav.py` / `main_ugv.py`.
 
-- Edit topic names in [`ros2_ws/src/dt_bringup/config/organizer_ros.yaml`](ros2_ws/src/dt_bringup/config/organizer_ros.yaml) (and keep [`config/organizer_ros.yaml`](config/organizer_ros.yaml) in sync for reference).
+- Edit topic names in [`ros2_ws/src/dt_bringup/config/organizer_ros.yaml`](ros2_ws/src/dt_bringup/config/organizer_ros.yaml), then run `python scripts/sync_organizer_config.py`.
 - Build and run: [`ros2_ws/README.md`](ros2_ws/README.md) or `./scripts/run_organizer_bridge.sh` on a machine with ROS 2 Humble.
 - Replace `dt_interfaces/msg/*.msg` with organizer-supplied types if they publish a package.
 
@@ -102,7 +104,7 @@ INIT → PRECHECK → SEARCH ⇄ DETECT_CANDIDATE
 
 ---
 
-## Quick start
+## Quick start (golden path)
 
 ### Install dependencies
 
@@ -110,31 +112,49 @@ INIT → PRECHECK → SEARCH ⇄ DETECT_CANDIDATE
 pip install -r requirements.txt
 ```
 
-> For Raspberry Pi: `opencv-python` can be replaced with `opencv-python-headless`.
-
-### Run tests
+### Run checks
 
 ```bash
+python scripts/check_config_consistency.py
 python -m pytest tests/ -v
 ```
 
-### Run the UAV mission
+### Start everything with one command (recommended)
 
 ```bash
-python main_uav.py
+python cli/dualtech.py start ugv --docker --with-ros
 ```
 
-### Run the UGV mission
+Switch platform:
 
 ```bash
-python main_ugv.py
+python cli/dualtech.py start uav --docker --with-ros
+```
+
+Control and health:
+
+```bash
+python cli/dualtech.py status
+python cli/dualtech.py logs -f
+python cli/dualtech.py stop
+```
+
+Web control panel:
+
+- `http://<device-ip>:8080` (OperatorPanel, primary runtime controls)
+- CLI remains fallback/orchestration path.
+
+### Direct mode (without Docker)
+
+```bash
+python cli/dualtech.py start ugv --no-docker --foreground
 ```
 
 ---
 
-## Configuration
+## Configuration (single source of truth)
 
-Edit the YAML files under `config/` before deploying:
+Edit YAML files under `config/` before deploying:
 
 | File | Purpose |
 |------|---------|
@@ -142,6 +162,7 @@ Edit the YAML files under `config/` before deploying:
 | `config/uav.yaml` | MAVLink connection, altitudes, speeds, servo PWM |
 | `config/ugv.yaml` | Serial port, speeds, drop-zone GPS |
 | `config/classes.yaml` | YOLO class IDs, target classes, transport classes |
+| `config/hardware/hw_params.yaml` | Servo/stepper/camera calibration values |
 
 Place your trained YOLO weights at `models/best.pt`.
 

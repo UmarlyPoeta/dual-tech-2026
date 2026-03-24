@@ -7,7 +7,7 @@
 #
 # Run:
 #   docker run --privileged --network host \
-#     -v /dev:/dev -v $(pwd)/configs:/app/configs \
+#     -v /dev:/dev -v $(pwd)/config:/app/config \
 #     -v $(pwd)/models:/app/models -v $(pwd)/logs:/app/logs \
 #     -e PLATFORM=ugv dualtech:latest
 # =============================================================================
@@ -28,19 +28,7 @@ WORKDIR /build
 
 COPY requirements.txt .
 
-RUN pip install --no-cache-dir --prefix=/install \
-    pyyaml>=6.0 \
-    numpy>=1.24 \
-    "opencv-python-headless>=4.8" \
-    "ultralytics>=8.0" \
-    "pyzbar>=0.1.9" \
-    "dronekit>=2.9.2" \
-    "pymavlink>=2.4.40" \
-    "pyserial>=3.5" \
-    "pynmea2>=1.19" \
-    "click>=8.0" \
-    "websockets>=12.0" \
-    "pytest>=7.0"
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 # ---------------------------------------------------------------------------
 # Stage 2: Runtime — slim image with only what we need
@@ -59,7 +47,7 @@ WORKDIR /app
 
 COPY . .
 
-RUN mkdir -p /app/logs /app/models /app/configs
+RUN mkdir -p /app/logs /app/models /app/config
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1

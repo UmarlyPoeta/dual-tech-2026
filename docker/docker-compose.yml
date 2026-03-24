@@ -20,7 +20,6 @@ services:
       - PLATFORM=${PLATFORM:-ugv}
       - PYTHONUNBUFFERED=1
     volumes:
-      - ../configs:/app/configs:ro
       - ../config:/app/config:ro
       - ../models:/app/models:ro
       - ../logs:/app/logs
@@ -62,7 +61,6 @@ services:
       - PYTHONUNBUFFERED=1
     command: ["python3", "networking/foxglove_bridge.py", "--port", "8765"]
     volumes:
-      - ../configs:/app/configs:ro
       - ../config:/app/config:ro
       - ../logs:/app/logs
     depends_on:

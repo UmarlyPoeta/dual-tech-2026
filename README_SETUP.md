@@ -2,7 +2,7 @@
 
 This guide describes how to set up the project on your development machine (laptop) and on the final Raspberry Pi 5 competition platform.
 
-## 💻 Development Machine (Laptop/PC)
+## Development Machine (Laptop/PC)
 
 To work on the code without the Raspberry Pi hardware:
 
@@ -16,14 +16,19 @@ To work on the code without the Raspberry Pi hardware:
     pip install -r requirements.txt
     ```
     *Note: `picamera2` and `lgpio` may fail to install or run on Windows/macOS. This is fine; the code handles fallbacks automatically.*
-3.  **Run in Simulation**:
+3.  **Run consistency checks and tests**:
+    ```bash
+    python scripts/check_config_consistency.py
+    python -m pytest tests/ -v
+    ```
+4.  **Run in Simulation**:
     The code detects that it's not on a Pi and will:
     -   Use `OpenCV` (webcam or file) instead of `picamera2`.
     -   Run GPIO (motors/gripper) in **MOCK** mode (no errors, just logs).
 
 ---
 
-## 🍓 Raspberry Pi 5 (Competition Platform)
+## Raspberry Pi 5 (Competition Platform)
 
 On a fresh **Raspberry Pi OS Bookworm (64-bit)**:
 
@@ -41,21 +46,33 @@ On a fresh **Raspberry Pi OS Bookworm (64-bit)**:
     ```bash
     sudo reboot
     ```
-4.  **Run the UGV/UAV Application**:
+4.  **Start with one command (recommended)**:
     ```bash
     source venv/bin/activate
-    python main_ugv.py
+    python cli/dualtech.py start ugv --docker --with-ros
     ```
+    For UAV:
+    ```bash
+    python cli/dualtech.py start uav --docker --with-ros
+    ```
+5.  **Control and status**:
+    - WebGUI (primary): `http://<rpi-ip>:8080`
+    - CLI fallback:
+      ```bash
+      python cli/dualtech.py status
+      python cli/dualtech.py logs -f
+      python cli/dualtech.py stop
+      ```
 
 ---
 
-## 🛠 Troubleshooting
+## Troubleshooting
 
 If something breaks during the competition (e.g., missing dependencies, permission issues):
 
-1.  **Run the Fix Script**:
+1.  **Run diagnostics first**:
     ```bash
-    ./fix_shit.sh
+    python cli/dualtech.py doctor
     ```
 2.  **Check Camera**:
     ```bash
@@ -66,7 +83,7 @@ If something breaks during the competition (e.g., missing dependencies, permissi
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 - `main_ugv.py`: Main entry point for the ground vehicle.
 - `main_uav.py`: Main entry point for the drone.

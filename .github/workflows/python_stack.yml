@@ -1,0 +1,57 @@
+name: Python stack checks
+
+on:
+  push:
+    paths:
+      - "**.py"
+      - "config/**"
+      - "docker/**"
+      - "requirements.txt"
+      - ".github/workflows/python_stack.yml"
+  pull_request:
+    paths:
+      - "**.py"
+      - "config/**"
+      - "docker/**"
+      - "requirements.txt"
+      - ".github/workflows/python_stack.yml"
+
+jobs:
+  test-and-consistency:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            libzbar0
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Validate config consistency
+        run: |
+          python scripts/check_config_consistency.py
+
+      - name: Run unit tests
+        run: |
+          python -m pytest \
+            tests/test_camera_reconnect.py \
+            tests/test_data_logger.py \
+            tests/test_fusion.py \
+            tests/test_models.py \
+            tests/test_networking.py \
+            tests/test_pose_estimator.py \
+            tests/test_state_machine.py \
+            tests/test_target_registry.py \
+            tests/test_web_gui.py \
+            -v

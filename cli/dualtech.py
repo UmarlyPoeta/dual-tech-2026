@@ -14,10 +14,13 @@ from __future__ import annotations
 import glob
 import json
 import os
+import signal
 import shutil
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
@@ -25,6 +28,11 @@ import click
 import yaml
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
+ROS_PID_FILE = PROJECT_DIR / "logs" / "organizer_bridge.pid"
+if str(PROJECT_DIR) not in sys.path:
+    sys.path.insert(0, str(PROJECT_DIR))
+
+from config_loader import resolve_hw_params_path
 
 # ---------------------------------------------------------------------------
 # Colour helpers
@@ -158,7 +166,7 @@ def doctor(json_out: bool) -> None:
     check("yolo_model", model_path.exists(), str(model_path) if model_path.exists() else "NOT FOUND")
 
     # hw_params.yaml
-    hw_params = PROJECT_DIR / "configs" / "hw_params.yaml"
+    hw_params = resolve_hw_params_path()
     check("hw_params", hw_params.exists(), str(hw_params) if hw_params.exists() else "NOT FOUND — run: dualtech calibrate")
 
     # Network
@@ -206,7 +214,7 @@ def calibrate(servo: bool, stepper: bool, camera: bool, calibrate_all: bool) -> 
     if not any([servo, stepper, camera, calibrate_all]):
         calibrate_all = True
 
-    hw_path = PROJECT_DIR / "configs" / "hw_params.yaml"
+    hw_path = resolve_hw_params_path(create_parent=True)
     if hw_path.exists():
         with open(hw_path) as f:
             hw_cfg = yaml.safe_load(f) or {}
@@ -400,7 +408,10 @@ def _calibrate_camera(hw_cfg: dict) -> None:
 @cli.command()
 @click.argument("platform", type=click.Choice(["ugv", "uav"]), default="ugv")
 @click.option("--docker/--no-docker", default=True, help="Use Docker or run directly")
-def start(platform: str, docker: bool) -> None:
+@click.option("--with-ros/--no-with-ros", default=False, help="Start ROS organizer bridge")
+@click.option("--with-foxglove/--no-with-foxglove", default=True, help="Start foxglove_bridge service")
+@click.option("--detach/--foreground", default=True, help="Run in background or foreground")
+def start(platform: str, docker: bool, with_ros: bool, with_foxglove: bool, detach: bool) -> None:
     """Launch the competition mission."""
     if docker:
         compose_file = PROJECT_DIR / "docker" / "docker-compose.yml"
@@ -413,20 +424,37 @@ def start(platform: str, docker: bool) -> None:
         env["PLATFORM"] = platform
 
         compose_cmd = _find_compose_cmd()
+        services = ["core"]
+        if with_foxglove:
+            services.append("foxglove_bridge")
+        mode_args = ["-d"] if detach else []
         subprocess.run(
-            [*compose_cmd, "-f", str(compose_file), "up", "-d", "--remove-orphans"],
+            [*compose_cmd, "-f", str(compose_file), "up", *mode_args, "--remove-orphans", *services],
             env=env,
             check=True,
         )
-        click.echo(_pass(f"{platform.upper()} containers started"))
+        click.echo(_pass(f"{platform.upper()} services started ({', '.join(services)})"))
+        if with_ros:
+            _start_ros_bridge()
     else:
         entry = PROJECT_DIR / f"main_{platform}.py"
         if not entry.exists():
             click.echo(_fail(f"Entry point not found: {entry}"))
             raise SystemExit(1)
 
+        if with_ros:
+            _start_ros_bridge()
+
         click.echo(_info(f"Starting {platform.upper()} directly..."))
-        os.execvp(sys.executable, [sys.executable, str(entry)])
+        if detach:
+            logs_dir = PROJECT_DIR / "logs"
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            out = open(logs_dir / f"{platform}_mission.out.log", "a", encoding="utf-8")
+            err = open(logs_dir / f"{platform}_mission.err.log", "a", encoding="utf-8")
+            proc = subprocess.Popen([sys.executable, str(entry)], stdout=out, stderr=err)
+            click.echo(_pass(f"{platform.upper()} mission started (pid={proc.pid})"))
+        else:
+            os.execvp(sys.executable, [sys.executable, str(entry)])
 
 
 # ===========================================================================
@@ -434,17 +462,59 @@ def start(platform: str, docker: bool) -> None:
 # ===========================================================================
 
 @cli.command()
-def stop() -> None:
+@click.option("--with-ros/--without-ros", default=True, help="Stop organizer bridge process")
+def stop(with_ros: bool) -> None:
     """Gracefully stop all running services."""
     compose_file = PROJECT_DIR / "docker" / "docker-compose.yml"
-    compose_cmd = _find_compose_cmd()
+    if compose_file.exists():
+        compose_cmd = _find_compose_cmd()
+        click.echo(_info("Stopping Docker services..."))
+        subprocess.run(
+            [*compose_cmd, "-f", str(compose_file), "down"],
+            capture_output=True,
+        )
+        click.echo(_pass("Docker services stopped"))
 
-    click.echo(_info("Stopping Docker services..."))
-    subprocess.run(
-        [*compose_cmd, "-f", str(compose_file), "down"],
-        capture_output=True,
-    )
-    click.echo(_pass("Services stopped"))
+    if with_ros:
+        _stop_ros_bridge()
+
+
+# ===========================================================================
+# dualtech status
+# ===========================================================================
+
+@cli.command()
+def status() -> None:
+    """Show service status for control plane."""
+    compose_file = PROJECT_DIR / "docker" / "docker-compose.yml"
+    if compose_file.exists():
+        try:
+            compose_cmd = _find_compose_cmd()
+            env = os.environ.copy()
+            env["PLATFORM"] = env.get("PLATFORM", "ugv")
+            result = subprocess.run(
+                [*compose_cmd, "-f", str(compose_file), "ps"],
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            click.echo(_info("Docker services"))
+            click.echo(result.stdout.strip() if result.stdout.strip() else "  (no compose output)")
+        except SystemExit:
+            click.echo(_warn("Docker compose unavailable"))
+
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:8080/api/health", timeout=2) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        click.echo(_pass(f"WebGUI health: {payload}"))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        click.echo(_warn("WebGUI health: unavailable (core not running or no GUI)"))
+
+    ros_pid = _read_ros_pid()
+    if ros_pid and _is_process_alive(ros_pid):
+        click.echo(_pass(f"ROS bridge running (pid={ros_pid})"))
+    else:
+        click.echo(_warn("ROS bridge not running"))
 
 
 # ===========================================================================
@@ -500,6 +570,69 @@ def logs(tail: int, follow: bool, clean: bool) -> None:
 # ===========================================================================
 # Helpers
 # ===========================================================================
+
+def _read_ros_pid() -> Optional[int]:
+    try:
+        return int(ROS_PID_FILE.read_text(encoding="utf-8").strip())
+    except Exception:
+        return None
+
+
+def _is_process_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def _start_ros_bridge() -> None:
+    script = PROJECT_DIR / "scripts" / "run_organizer_bridge.sh"
+    if not script.exists():
+        click.echo(_fail(f"ROS bridge script not found: {script}"))
+        raise SystemExit(1)
+
+    running_pid = _read_ros_pid()
+    if running_pid and _is_process_alive(running_pid):
+        click.echo(_warn(f"ROS bridge already running (pid={running_pid})"))
+        return
+
+    logs_dir = PROJECT_DIR / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    stdout = open(logs_dir / "organizer_bridge.out.log", "a", encoding="utf-8")
+    stderr = open(logs_dir / "organizer_bridge.err.log", "a", encoding="utf-8")
+
+    proc = subprocess.Popen(["bash", str(script)], stdout=stdout, stderr=stderr)
+    ROS_PID_FILE.write_text(str(proc.pid), encoding="utf-8")
+    click.echo(_pass(f"ROS bridge started (pid={proc.pid})"))
+
+
+def _stop_ros_bridge() -> None:
+    pid = _read_ros_pid()
+    if not pid:
+        click.echo(_info("ROS bridge pid file not found"))
+        return
+
+    if not _is_process_alive(pid):
+        click.echo(_warn(f"ROS bridge pid file stale (pid={pid})"))
+        ROS_PID_FILE.unlink(missing_ok=True)
+        return
+
+    click.echo(_info(f"Stopping ROS bridge (pid={pid})..."))
+    os.kill(pid, signal.SIGTERM)
+    for _ in range(20):
+        if not _is_process_alive(pid):
+            ROS_PID_FILE.unlink(missing_ok=True)
+            click.echo(_pass("ROS bridge stopped"))
+            return
+        time.sleep(0.1)
+
+    os.kill(pid, signal.SIGKILL)
+    ROS_PID_FILE.unlink(missing_ok=True)
+    click.echo(_warn("ROS bridge force-killed"))
+
 
 def _find_compose_cmd() -> list[str]:
     """Return the docker compose command as a list."""

@@ -1,12 +1,14 @@
-# Mirror of ros2_ws/src/dt_bringup/config/organizer_ros.yaml for human discovery.
-# Authoritative copy for colcon install is under dt_bringup (rebuild after edits).
+# Mirror file generated from:
+#   ros2_ws/src/dt_bringup/config/organizer_ros.yaml
+# Do not edit manually; run:
+#   python scripts/sync_organizer_config.py
 
 dt_organizer_bridge:
   ros__parameters:
     stub_mode: true
     publish_rate_hz: 1.0
-    object_topic: "/dualtech/placeholder/organizers/object_detected"
-    telemetry_topic: "/dualtech/placeholder/organizers/mission_telemetry"
-    status_topic: "/dualtech/placeholder/organizers/bridge_status"
-    frame_id: "camera_optical_frame"
-    platform: "ugv"
+    object_topic: /dualtech/placeholder/organizers/object_detected
+    telemetry_topic: /dualtech/placeholder/organizers/mission_telemetry
+    status_topic: /dualtech/placeholder/organizers/bridge_status
+    frame_id: camera_optical_frame
+    platform: ugv

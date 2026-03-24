@@ -399,7 +399,7 @@ LOGROTATE_EOF
 ok "logrotate config installed at /etc/logrotate.d/dualtech"
 
 # Create project directories
-mkdir -p "$PROJECT_DIR/models" "$PROJECT_DIR/logs" "$PROJECT_DIR/configs"
+mkdir -p "$PROJECT_DIR/models" "$PROJECT_DIR/logs" "$PROJECT_DIR/config/hardware"
 
 # Verification
 echo ""
@@ -474,7 +474,7 @@ echo -e "  ${YELLOW}3. Run diagnostics:${NC}"
 echo -e "       python cli/dualtech.py doctor"
 echo ""
 echo -e "  ${YELLOW}4. Start with Docker:${NC}"
-echo -e "       docker compose -f docker/docker-compose.yml up"
+echo -e "       python cli/dualtech.py start ugv --docker --with-ros"
 echo ""
 echo -e "  Log: ${BOLD}$LOG_FILE${NC}"
 echo ""
