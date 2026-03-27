@@ -1,0 +1,4 @@
+# ML/inference dependencies (Docker-first on Raspberry Pi setup).
+# Host armv7l userspace usually cannot resolve torch wheels reliably.
+
+ultralytics>=8.0

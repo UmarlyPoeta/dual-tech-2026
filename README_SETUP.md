@@ -40,7 +40,7 @@ On a fresh **Raspberry Pi OS Bookworm (64-bit)**:
 2.  **Run the Setup Script**:
     This script installs all system drivers, `libcamera`, `picamera2`, and sets up the Python environment correctly.
     ```bash
-    ./setup_rpi.sh
+    ./scripts/bootstrap.sh
     ```
 3.  **Reboot**:
     ```bash
@@ -48,7 +48,7 @@ On a fresh **Raspberry Pi OS Bookworm (64-bit)**:
     ```
 4.  **Start with one command (recommended)**:
     ```bash
-    source venv/bin/activate
+    source activate.sh
     python cli/dualtech.py start ugv --docker --with-ros
     ```
     For UAV:
@@ -66,6 +66,12 @@ On a fresh **Raspberry Pi OS Bookworm (64-bit)**:
 
 ---
 
+## Dependency Model (Docker-first on RPi5)
+
+- `requirements.txt` and `requirements-base.txt` are host-safe (CLI, calibration, GPIO, camera checks).
+- `requirements-ml.txt` contains ML dependencies (`ultralytics`/torch chain) intended for Docker runtime.
+- On RPi5 with armhf userspace, host install of `ultralytics` is intentionally not required for mission startup.
+
 ## Troubleshooting
 
 If something breaks during the competition (e.g., missing dependencies, permission issues):
@@ -80,6 +86,11 @@ If something breaks during the competition (e.g., missing dependencies, permissi
     ```
 3.  **Check GPIO**:
     Ensure the user is in the `gpio` group: `groups $USER`.
+4.  **If `numpy/cv2` import fails with `libopenblas.so.0`**:
+    ```bash
+    sudo apt install -y libopenblas0-pthread
+    sudo ldconfig
+    ```
 
 ---
 

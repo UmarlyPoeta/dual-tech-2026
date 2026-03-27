@@ -44,7 +44,8 @@ hal:
 
   gps:
     mode: "real"  # real | mock | replay
-    port: "/dev/ttyAMA10"
+    # GPS on GPIO UART pins (physical 8/10) should use the stable alias.
+    port: "/dev/serial0"
     baud: 38400
 
   motors:

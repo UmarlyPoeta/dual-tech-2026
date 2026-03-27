@@ -68,7 +68,8 @@ step "0/10" "Pre-flight checks"
 log "Bootstrap started: $(date), USER=$USER, DIR=$PROJECT_DIR"
 
 [ "$EUID" -eq 0 ] && die "Do not run as root. Use a regular user with sudo."
-sudo -v 2>/dev/null || die "No sudo access."
+# Avoid sudo timestamp prompt in non-interactive environments (no TTY).
+sudo -n true 2>/dev/null || die "No sudo access."
 ping -c 1 -W 5 8.8.8.8 > /dev/null 2>&1 || die "No internet connectivity."
 
 source /etc/os-release 2>/dev/null || true
@@ -125,6 +126,15 @@ echo "  -> C libraries for pip wheel builds..."
 apt_install \
     libcap-dev libjpeg-dev libopenjp2-7-dev \
     libzbar0 libzbar-dev libssl-dev libffi-dev
+
+echo "  -> Runtime BLAS (required by numpy/opencv wheels)..."
+if apt-cache show libopenblas0-pthread > /dev/null 2>&1; then
+    apt_install libopenblas0-pthread
+elif apt-cache show libopenblas0 > /dev/null 2>&1; then
+    apt_install libopenblas0
+else
+    warn "No libopenblas runtime package found in apt"
+fi
 
 if apt-cache show libatlas-base-dev > /dev/null 2>&1; then
     apt_install libatlas-base-dev
@@ -246,7 +256,8 @@ if [ -f /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor ]; then
 
     # Persist via cron @reboot
     CRON_CMD='@reboot for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo performance > "$g" 2>/dev/null; done'
-    ( sudo crontab -l 2>/dev/null | grep -v "scaling_governor"; echo "$CRON_CMD" ) | sudo crontab - 2>/dev/null
+    # grep returns 1 when there are no matches; with `set -e` that would abort the script.
+    ( sudo crontab -l 2>/dev/null | grep -v "scaling_governor" || true; echo "$CRON_CMD" ) | sudo crontab - 2>/dev/null
     ok "Performance governor persisted via cron"
 else
     warn "cpufreq not available — governor not set"
@@ -340,14 +351,13 @@ symlink_system_pkg "prctl"       "prctl.py"
 symlink_system_pkg "prctl .so"   "_prctl*.so"
 symlink_system_pkg "gpiozero"    "gpiozero"
 symlink_system_pkg "colorzero"   "colorzero"
-symlink_system_pkg "serial"      "serial"
 symlink_system_pkg "cv2"         "cv2"
 symlink_system_pkg "gpiod"       "gpiod*"
 symlink_system_pkg "pigpio"      "pigpio*"
 
 # Install pip requirements
-if [ -f "$PROJECT_DIR/requirements.txt" ]; then
-    "$PYTHON_BIN" -m pip install --quiet -r "$PROJECT_DIR/requirements.txt" >> "$LOG_FILE" 2>&1 \
+if [ -f "$PROJECT_DIR/requirements-base.txt" ]; then
+    "$PYTHON_BIN" -m pip install --quiet -r "$PROJECT_DIR/requirements-base.txt" >> "$LOG_FILE" 2>&1 \
         || warn "Some requirements failed — installing critical ones individually"
 fi
 
@@ -355,14 +365,23 @@ pip_install "pyyaml>=6.0"
 pip_install "pynmea2>=1.19"
 pip_install "pyzbar>=0.1.9"
 pip_install "pymavlink>=2.4.40"
+pip_install "future>=0.18.3"
 pip_install "dronekit>=2.9.2"
-pip_install "ultralytics>=8.0"
+pip_install "pyserial>=3.5"
 pip_install "click>=8.0"
 pip_install "websockets>=12.0"
 pip_install "pytest>=7.0" "pytest-cov>=4.0"
 
+# Force ABI-safe pair if resolver pulled NumPy 2.x on Pi host.
+if "$PYTHON_BIN" -c "import numpy as np, sys; sys.exit(0 if int(np.__version__.split('.')[0]) >= 2 else 1)" > /dev/null 2>&1; then
+    warn "NumPy 2.x detected on host — forcing NumPy<2 + OpenCV 4.10.0.84"
+    pip_install "numpy<2" "opencv-python==4.10.0.84"
+fi
+
 if ! "$PYTHON_BIN" -c "import cv2" > /dev/null 2>&1; then
-    pip_install "opencv-python>=4.8"
+    # First try ABI-safe pair regardless of reported machine (some Pi setups
+    # report aarch64 with 32-bit userspace tags).
+    pip_install "numpy<2" "opencv-python==4.10.0.84" || pip_install "opencv-python>=4.8"
 fi
 if ! "$PYTHON_BIN" -c "import picamera2" > /dev/null 2>&1; then
     pip_install "picamera2" || warn "picamera2 pip failed — OpenCV fallback in camera.py"
@@ -418,15 +437,20 @@ check "numpy"        "import numpy as np; print(np.__version__)"
 check "cv2"          "import cv2; print(cv2.__version__)"
 check "yaml"         "import yaml; print(yaml.__version__)"
 check "lgpio"        "import lgpio; print('OK')"
-check "gpiozero"     "import gpiozero; print(gpiozero.__version__)"
+check "gpiozero"     "import gpiozero; print('OK')"
 check "serial"       "import serial; print(serial.__version__)"
 check "pynmea2"      "import pynmea2; print('OK')"
 check "pyzbar"       "import pyzbar; print('OK')"
 check "pymavlink"    "from pymavlink import mavutil; print('OK')"
-check "dronekit"     "import dronekit; print('OK')"
-check "ultralytics"  "import ultralytics; print(ultralytics.__version__)"
+check "dronekit"     "import collections, collections.abc; collections.MutableMapping = getattr(collections, 'MutableMapping', collections.abc.MutableMapping); import dronekit; print('OK')"
 check "click"        "import click; print(click.__version__)"
 check "websockets"   "import websockets; print(websockets.__version__)"
+
+if "$PYTHON_BIN" -c "import ultralytics" > /dev/null 2>&1; then
+    check "ultralytics" "import ultralytics; print(ultralytics.__version__)"
+else
+    warn "ultralytics: not installed on host (Docker-first setup)"
+fi
 
 echo ""
 echo -e "  ${BOLD}Hardware:${NC}"

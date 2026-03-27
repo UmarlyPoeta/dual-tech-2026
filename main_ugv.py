@@ -18,7 +18,7 @@ from localization.pose import PoseEstimator
 from logging_module.logger import DataLogger
 from mission.mission_manager import MissionManager
 from mission.target_registry import TargetRegistry
-from monitoring.health import HealthMonitor, SystemWatchdog
+from monitoring.health import ComponentStatus, HealthMonitor, SystemWatchdog
 from networking.heartbeat import HeartbeatMonitor
 from networking.foxglove_bridge import FoxgloveBridge
 from networking.video_streamer import VideoStreamer
@@ -88,14 +88,13 @@ def main() -> None:
         )
         controller.connect()
 
-        # --- Watchdog ---
+        # --- Watchdog (start after core components are initialized) ---
         watchdog = SystemWatchdog(
             health_monitor=health,
             critical_components=mon_cfg.get("critical_components", ["camera", "gps", "mission"]),
             timeout_s=mon_cfg.get("timeout_s", 5.0),
             on_failure=lambda comp, status: controller.emergency_stop()
         )
-        watchdog.start()
 
         # Load search waypoints if available
         wp_file = Path(ugv_cfg.get("search_waypoints_file", "config/ugv_search_waypoints.txt"))
@@ -110,6 +109,8 @@ def main() -> None:
             controller.load_waypoints(waypoints)
 
         camera.open()
+        # Seed initial mission heartbeat before manager loop starts.
+        health.heartbeat("mission", ComponentStatus.WARNING)
         detector.load()
 
         # --- FPV video stream (replaces VNC) ---
@@ -278,6 +279,7 @@ def main() -> None:
             enable_transport=True,
         )
         manager_ref[0] = mgr
+        watchdog.start()
 
         try:
             mgr.run(get_frame=camera.get_data)

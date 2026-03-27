@@ -1,6 +1,6 @@
 # =============================================================================
 # RPi5.Dockerfile — Dual Tech 2026 (ARM64)
-# Multi-stage build for Raspberry Pi 5 running Debian Bookworm
+# Single-stage build for Raspberry Pi 5 running Debian Bookworm
 #
 # Build:
 #   docker build -f docker/RPi5.Dockerfile -t dualtech:latest .
@@ -13,37 +13,37 @@
 # =============================================================================
 
 # ---------------------------------------------------------------------------
-# Stage 1: Builder — compile wheels for native extensions
-# ---------------------------------------------------------------------------
-FROM python:3.11-bookworm AS builder
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential cmake pkg-config swig \
-    libcap-dev libjpeg-dev libopenjp2-7-dev \
-    libzbar-dev libssl-dev libffi-dev \
-    libatlas-base-dev libgpiod-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /build
-
-COPY requirements.txt .
-
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
-
-# ---------------------------------------------------------------------------
-# Stage 2: Runtime — slim image with only what we need
+# Single-stage runtime image (more stable on resource-constrained Pi builds)
 # ---------------------------------------------------------------------------
 FROM python:3.11-slim-bookworm AS runtime
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libzbar0 libjpeg62-turbo libopenjp2-7 \
-    libatlas3-base libgpiod2 pigpio \
-    v4l-utils i2c-tools curl \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY --from=builder /install /usr/local
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        libzbar0 libjpeg62-turbo libopenjp2-7 \
+        libatlas3-base libgpiod2 \
+        python3-opencv \
+        curl; \
+    if apt-cache show libopenblas0-pthread >/dev/null 2>&1; then \
+        apt-get install -y --no-install-recommends libopenblas0-pthread; \
+    elif apt-cache show libopenblas0 >/dev/null 2>&1; then \
+        apt-get install -y --no-install-recommends libopenblas0; \
+    fi; \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+COPY requirements-docker.txt requirements-ml.txt ./
+
+ARG INSTALL_ML=auto
+RUN PIP_EXTRA_INDEX_URL=https://www.piwheels.org/simple \
+    pip install --no-cache-dir --prefer-binary -r requirements-docker.txt && \
+    if [ "$INSTALL_ML" = "0" ] || { [ "$INSTALL_ML" = "auto" ] && [ "$(dpkg --print-architecture)" = "armhf" ]; }; then \
+        echo "Skipping ML deps (ultralytics/torch) for this architecture"; \
+    else \
+        PIP_EXTRA_INDEX_URL=https://www.piwheels.org/simple \
+        pip install --no-cache-dir --prefer-binary -r requirements-ml.txt; \
+    fi
 
 COPY . .
 

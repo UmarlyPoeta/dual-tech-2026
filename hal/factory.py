@@ -83,22 +83,34 @@ def create_servo(cfg: Dict[str, Any], health: Optional[HealthMonitor] = None) ->
     if mode == "mock":
         return MockServo(name=name, health_monitor=health, **kwargs)
 
-    # Try pigpio first (hardware PWM), fall back to gpiozero
+    # Try pigpio first (hardware PWM), fall back to gpiozero when daemon is
+    # unavailable (common on some Pi5 userspace/package combinations).
     try:
-        import pigpio  # type: ignore  # noqa: F401
-        servo = PigpioServo(**kwargs)
-        logger.info("Using pigpio for servo '%s'", name)
-        return servo
-    except ImportError:
-        logger.info("pigpio not available for servo '%s' — using gpiozero fallback", name)
-        return GpiozeroServo(
-            pin=kwargs["pin"],
-            min_angle_deg=kwargs["min_angle_deg"],
-            max_angle_deg=kwargs["max_angle_deg"],
-            default_angle_deg=kwargs["default_angle_deg"],
-            name=name,
-            health_monitor=health,
-        )
+        import pigpio  # type: ignore
+
+        probe = pigpio.pi()
+        connected = bool(probe.connected)
+        try:
+            probe.stop()
+        except Exception:
+            pass
+
+        if connected:
+            servo = PigpioServo(**kwargs)
+            logger.info("Using pigpio for servo '%s'", name)
+            return servo
+        logger.warning("pigpiod unavailable for servo '%s' — using gpiozero fallback", name)
+    except Exception as exc:
+        logger.warning("pigpio unavailable for servo '%s' (%s) — using gpiozero fallback", name, exc)
+
+    return GpiozeroServo(
+        pin=kwargs["pin"],
+        min_angle_deg=kwargs["min_angle_deg"],
+        max_angle_deg=kwargs["max_angle_deg"],
+        default_angle_deg=kwargs["default_angle_deg"],
+        name=name,
+        health_monitor=health,
+    )
 
 
 def create_stepper(cfg: Dict[str, Any], health: Optional[HealthMonitor] = None) -> StepperInterface:

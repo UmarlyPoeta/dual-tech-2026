@@ -58,6 +58,9 @@ class RealGps(GpsInterface):
         self._thread = threading.Thread(target=self._run, daemon=True, name="gps-real")
         self._thread.start()
         logger.info("GPS: RealGps started on %s", self._port)
+        if self._health:
+            # Service is alive, waiting for first valid NMEA fix.
+            self._health.heartbeat("gps", ComponentStatus.WARNING)
 
     def stop(self) -> None:
         self._running = False
@@ -86,6 +89,8 @@ class RealGps(GpsInterface):
                     while self._running:
                         line = ser.readline().decode("ascii", errors="replace").strip()
                         if not line:
+                            if self._health:
+                                self._health.heartbeat("gps", ComponentStatus.WARNING)
                             continue
                         try:
                             msg = pynmea2.parse(line)

@@ -12,6 +12,7 @@ services:
       context: ..
       dockerfile: docker/RPi5.Dockerfile
     image: dualtech:latest
+    pull_policy: never
     container_name: dualtech-core
     privileged: true
     network_mode: host
@@ -19,22 +20,18 @@ services:
     environment:
       - PLATFORM=${PLATFORM:-ugv}
       - PYTHONUNBUFFERED=1
+      - GPIOZERO_PIN_FACTORY=lgpio
+      - DT_HAL__MOTORS__MODE=mock
     volumes:
       - ../config:/app/config:ro
       - ../models:/app/models:ro
       - ../logs:/app/logs
       - /dev:/dev
       - /sys:/sys:ro
-      - /run/pigpio.sock:/run/pigpio.sock
     devices:
       - /dev/gpiochip0:/dev/gpiochip0
       - /dev/gpiochip4:/dev/gpiochip4
       - /dev/gpiomem:/dev/gpiomem
-    group_add:
-      - video
-      - gpio
-      - dialout
-      - i2c
     tmpfs:
       - /tmp:size=128M
     healthcheck:
@@ -50,10 +47,8 @@ services:
         max-file: "3"
 
   foxglove_bridge:
-    build:
-      context: ..
-      dockerfile: docker/RPi5.Dockerfile
     image: dualtech:latest
+    pull_policy: never
     container_name: dualtech-foxglove
     network_mode: host
     restart: unless-stopped
@@ -65,7 +60,7 @@ services:
       - ../logs:/app/logs
     depends_on:
       core:
-        condition: service_healthy
+        condition: service_started
     logging:
       driver: json-file
       options:

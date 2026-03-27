@@ -1,0 +1,29 @@
+# Dependencies for Docker runtime/build (RPi5, arm64 preferred).
+# Keep separate from host pins used by bootstrap on mixed armhf/aarch64 setups.
+
+# Core
+# Keep NumPy <2 for compatibility with distro OpenCV in container.
+numpy<2
+pyyaml>=6.0
+
+# Perception
+pyzbar>=0.1.9
+
+# UAV
+future>=0.18.3
+dronekit>=2.9.2
+pymavlink>=2.4.40
+
+# UGV / GPS
+gpiozero>=2.0
+lgpio>=0.2.2.0
+pyserial>=3.5
+pynmea2>=1.19
+
+# CLI / networking
+click>=8.0
+websockets>=12.0
+
+# Dev / tests
+pytest>=7.0
+pytest-cov>=4.0

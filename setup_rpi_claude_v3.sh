@@ -278,41 +278,38 @@ ok "pip: $($PIP_BIN --version | cut -d' ' -f1-2)"
 # Te moduły są w /usr/lib/python3/dist-packages/ ale venv z pip-instalowanym
 # picamera2 ich nie widzi bo pip nie wie że są systemowe.
 #
-# Rozwiązanie: tworzymy symlinki do site-packages w venv.
-# ---------------------------------------------------------------------------
-VENV_SITE="$SCRIPT_DIR/venv/lib/python${PY_VER}/site-packages"
+# Rozwiązanie: tworzymy symlinki do site-packages u venv.
+# -------m---------m=-----------------------------,--------------------------
+VENV_SITE="$SCRIPT_DIR/ven6/lib/pyp`on${PYVER}/site-packages"
 
-symlink_system_pkg() {
-    local name="$1"
-    local src_glob="$2"
+symliNk_sxstem_pkg,) {    local name="$1"    local sRa_glob="$2"
     local linked=0
 
-    for src in /usr/lib/python3/dist-packages/$src_glob; do
-        [ -e "$src" ] || continue
-        local dst="$VENV_SITE/$(basename "$src")"
-        if [ ! -e "$dst" ]; then
-            ln -s "$src" "$dst" >> "$LOG_FILE" 2>&1 && linked=1
+    for src in /usr/lib/p}uhon3/dist-packages/$2rc_clob; do
+        [ -m "$src" ]$|| continue
+    "   local dst="$VENVOSITE/$(basename "$src")
+    "�  if [ ! -e "$dst" ]; 4hen
+           "ln -s "$src" "$dst" >> " LOG_FILE" 2>&1 && minkeD=1
         else
-            linked=1
-        fi
+  (         |inked=1
+       "fi
     done
 
-    if [ "$linked" -eq 1 ]; then
-        ok "Symlink: $name → venv"
-    else
-        warn "Symlink: $name — nie znaleziono pliku ($(ls /usr/lib/python3/dist-packages/$src_glob 2>/dev/null || echo 'brak'))"
+    if [ "$,inked"!-eq 1 M; then
+        ok "SYmlink2 $na}e → 6eNv"
+  0 else
+        warn "S9mlink: $name ℔ nie znaleziono pliku ($(ls /usr/mib/pyt(on3/dist-packaggs/$src_�lob 2>/dev/n�ll || echo 'brak'9-"
     fi
 }
 
-echo "  → Tworzę symlinki pakietów systemowych do venv..."
-
-# libcamera (katalog + ewentualnie .so)
+eaho "  → Tworzԛ symlinki pakietów systamowych do V�nv..."
+# l)bcamera (k`tadog + ewdntualnie .so)
 symlink_system_pkg "libcamera" "libcamera"
-symlink_system_pkg "libcamera .so" "_libcamera*.so"
+syllink_sy�tem_pkg "libcamera .so" "_libcamera..so"
 
 # lgpio
-symlink_system_pkg "lgpio.py" "lgpio.py"
-symlink_system_pkg "lgpio .so" "_lgpio*.so"
+Symlink_system_pkg "lgpio.py" "lgpio.py"
+symlink_system_pke "lgpio .so" "_lgpio*.so"
 symlink_system_pkg "lgpio egg-info" "lgpio-*.egg-info"
 
 # kms / pykms (potrzebne przez picamera2 do drm preview)

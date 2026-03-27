@@ -57,12 +57,25 @@ class RealCamera(CameraInterface):
             try:
                 from picamera2 import Picamera2
                 self._picam2 = Picamera2()
-                config = self._picam2.create_video_configuration(
-                    main={"format": "BGR24", "size": (self._width, self._height)}
-                )
-                self._picam2.configure(config)
+                # Newer libcamera/PiSP stacks on Pi5 may reject BGR24 in the
+                # main stream; try a small list of broadly supported formats.
+                last_err: Optional[Exception] = None
+                for fmt in ("RGB888", "XRGB8888", "XBGR8888", "BGR24"):
+                    try:
+                        config = self._picam2.create_video_configuration(
+                            main={"format": fmt, "size": (self._width, self._height)}
+                        )
+                        self._picam2.configure(config)
+                        logger.info("Camera: Picamera2 main format=%s", fmt)
+                        break
+                    except Exception as exc:
+                        last_err = exc
+                else:
+                    raise RuntimeError(f"No supported Picamera2 format found: {last_err}")
                 self._picam2.start()
                 logger.info("Camera: RealCamera using Picamera2 (%dx%d)", self._width, self._height)
+                if self._health:
+                    self._health.heartbeat("camera", ComponentStatus.OK)
                 return
             except (ImportError, Exception):
                 if self._use_picamera_flag is True:
@@ -90,6 +103,17 @@ class RealCamera(CameraInterface):
         if self._picam2 is not None:
             try:
                 frame = self._picam2.capture_array()
+                # Downstream code expects BGR. Picamera2 commonly returns RGB/RGBA.
+                if frame is not None and len(frame.shape) == 3:
+                    channels = frame.shape[2]
+                    if channels == 4:
+                        import cv2
+
+                        frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
+                    elif channels == 3:
+                        import cv2
+
+                        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
             except Exception:
                 frame = None
         elif self._cap is not None:

@@ -40,6 +40,8 @@ class RealGpioMotor(GpioInterface):
             self._devices["right_in4"] = DigitalOutputDevice(self._pins["right_in4"])
             self._devices["right_enb"] = PWMOutputDevice(self._pins["right_enb"], frequency=self._pwm_freq)
             logger.info("GPIO: RealGpioMotor initialized (pins=%s)", self._pins)
+            if self._health:
+                self._health.heartbeat("motors", ComponentStatus.OK)
         except Exception as e:
             logger.error("GPIO: Failed to init real motor: %s", e)
             if self._health:
@@ -81,6 +83,8 @@ class MockGpioMotor(GpioInterface):
 
     def open(self) -> None:
         logger.info("GPIO: MockGpioMotor initialized")
+        if self._health:
+            self._health.heartbeat("motors", ComponentStatus.OK)
 
     def close(self) -> None:
         pass

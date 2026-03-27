@@ -1,0 +1,33 @@
+# Base dependencies for host and Docker runtime.
+# Keep this file free of ML frameworks that are unavailable on host armv7l userspace.
+
+# Core
+# Pi host builds (32-bit userspace on armv7l and some aarch64 combos) are
+# currently most stable with NumPy 1.x + OpenCV 4.10 ABI pair.
+numpy<2; platform_machine == "armv7l" or platform_machine == "aarch64"
+numpy>=1.24; platform_machine != "armv7l" and platform_machine != "aarch64"
+opencv-python==4.10.0.84; platform_machine == "armv7l" or platform_machine == "aarch64"
+opencv-python>=4.8; platform_machine != "armv7l" and platform_machine != "aarch64"
+pyyaml>=6.0
+
+# Perception (host-safe)
+pyzbar>=0.1.9
+
+# UAV
+future>=0.18.3
+dronekit>=2.9.2
+pymavlink>=2.4.40
+
+# UGV / GPS
+pyserial>=3.5
+pynmea2>=1.19
+
+# CLI
+click>=8.0
+
+# Foxglove bridge
+websockets>=12.0
+
+# Development / testing
+pytest>=7.0
+pytest-cov>=4.0

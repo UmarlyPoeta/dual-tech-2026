@@ -32,7 +32,7 @@ ROS_PID_FILE = PROJECT_DIR / "logs" / "organizer_bridge.pid"
 if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
 
-from config_loader import resolve_hw_params_path
+from config_loader import load_config, resolve_hw_params_path
 
 # ---------------------------------------------------------------------------
 # Colour helpers
@@ -64,7 +64,14 @@ def cli() -> None:
 
 @cli.command()
 @click.option("--json-out", is_flag=True, help="Output results as JSON")
-def doctor(json_out: bool) -> None:
+@click.option(
+    "--platform",
+    type=click.Choice(["ugv", "uav"]),
+    default="ugv",
+    show_default=True,
+    help="Platform config to validate against",
+)
+def doctor(json_out: bool, platform: str) -> None:
     """Run system health diagnostics."""
     results: dict[str, dict] = {}
 
@@ -86,16 +93,33 @@ def doctor(json_out: bool) -> None:
     check("i2c", len(i2c_devs) > 0, " ".join(i2c_devs) if i2c_devs else "no devices")
 
     # Serial / UART
-    uart_devs = glob.glob("/dev/ttyAMA*") + glob.glob("/dev/ttyUSB*")
+    uart_devs = glob.glob("/dev/ttyAMA*") + glob.glob("/dev/ttyUSB*") + glob.glob("/dev/serial*")
     check("serial", len(uart_devs) > 0, " ".join(uart_devs) if uart_devs else "no UART devices")
 
-    # Symlinks from udev
-    for symlink in ["/dev/speedybee", "/dev/front_cam", "/dev/gps_uart"]:
+    # Resolve configured GPS port to avoid misleading udev warnings for
+    # GPIO UART setups (e.g. GPS wired to physical pins 8/10).
+    gps_port = ""
+    try:
+        cfg = load_config(platform)
+        gps_port = str(cfg.get("hal", {}).get("gps", {}).get("port", ""))
+    except Exception:
+        gps_port = ""
+
+    # Symlinks from udev (USB-style device aliases)
+    symlinks = ["/dev/speedybee", "/dev/front_cam"]
+    if gps_port in ("", "/dev/gps_uart"):
+        symlinks.append("/dev/gps_uart")
+
+    for symlink in symlinks:
         exists = os.path.exists(symlink)
         if exists:
             check(f"udev:{symlink}", True, os.path.realpath(symlink))
         else:
             check_warn(f"udev:{symlink}", "not present (check udev rules)")
+
+    # GPS port from config
+    if gps_port:
+        check("gps_port", os.path.exists(gps_port), gps_port if os.path.exists(gps_port) else f"{gps_port} not present")
 
     # Camera
     video_devs = glob.glob("/dev/video*")
@@ -105,9 +129,33 @@ def doctor(json_out: bool) -> None:
     check("gpiochip", os.path.exists("/dev/gpiochip0"), "/dev/gpiochip0")
 
     # pigpiod
-    pigpio_running = subprocess.run(["pgrep", "-x", "pigpiod"],
-                                    capture_output=True).returncode == 0
-    check("pigpiod", pigpio_running, "running" if pigpio_running else "not running")
+    pigpio_running = subprocess.run(
+        ["pgrep", "-x", "pigpiod"], capture_output=True
+    ).returncode == 0
+    if pigpio_running:
+        check("pigpiod", True, "running")
+    else:
+        detail = "not running"
+        try:
+            status_proc = subprocess.run(
+                ["systemctl", "status", "pigpiod", "--no-pager", "--full"],
+                text=True,
+                capture_output=True,
+                timeout=5,
+            )
+            status_out = (status_proc.stdout or "") + "\n" + (status_proc.stderr or "")
+            if (
+                "Sorry, this system does not appear to be a raspberry pi." in status_out
+                or "unknown rev code" in status_out
+            ):
+                check_warn(
+                    "pigpiod",
+                    "unsupported on this Pi/revision (using gpiozero fallback for servos)",
+                )
+            else:
+                check("pigpiod", False, detail)
+        except Exception:
+            check("pigpiod", False, detail)
 
     # Docker
     docker_ok = shutil.which("docker") is not None

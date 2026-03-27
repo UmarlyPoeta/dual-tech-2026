@@ -48,10 +48,16 @@ class ObjectDetector:
 
     def load(self) -> None:
         """Load model weights into memory.  Must be called before :meth:`detect`."""
-        from ultralytics import YOLO  # type: ignore
-
         if not self._model_path.exists():
-            raise FileNotFoundError(f"Model weights not found: {self._model_path}")
+            logger.warning("YOLO model not found at %s — detector disabled.", self._model_path)
+            self._model = None
+            return
+        try:
+            from ultralytics import YOLO  # type: ignore
+        except Exception as exc:
+            logger.warning("Ultralytics not available (%s) — detector disabled.", exc)
+            self._model = None
+            return
         self._model = YOLO(str(self._model_path))
         logger.info("YOLO model loaded from %s (device=%s)", self._model_path, self._device)
 
@@ -62,7 +68,7 @@ class ObjectDetector:
     def detect(self, frame: np.ndarray) -> List[Detection]:
         """Run inference on *frame* and return a list of :class:`Detection` objects."""
         if self._model is None:
-            raise RuntimeError("Model not loaded — call load() first.")
+            return []
 
         self._frame_id += 1
         results = self._model(frame, device=self._device, verbose=False)

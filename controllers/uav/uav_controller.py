@@ -23,6 +23,19 @@ _RECONNECT_INTERVAL_S = 3.0
 _MAX_RECONNECT_ATTEMPTS = 10
 
 
+def _import_dronekit():
+    """Import dronekit with Python 3.11 compatibility shim."""
+    import collections
+    import collections.abc
+
+    if not hasattr(collections, "MutableMapping"):
+        collections.MutableMapping = collections.abc.MutableMapping
+
+    import dronekit  # type: ignore
+
+    return dronekit
+
+
 class UAVController(MotionInterface):
     """Controls the drone via MAVLink (dronekit-python).
 
@@ -71,7 +84,7 @@ class UAVController(MotionInterface):
         self._do_connect()
 
     def _do_connect(self) -> None:
-        import dronekit  # type: ignore
+        dronekit = _import_dronekit()
 
         conn_str = self._cfg.get("connection_string", "/dev/ttyAMA0")
         baud = self._cfg.get("baud_rate", 57600)
@@ -206,7 +219,7 @@ class UAVController(MotionInterface):
     # ------------------------------------------------------------------
 
     def _arm_and_takeoff(self, target_altitude: float) -> None:
-        import dronekit  # type: ignore
+        dronekit = _import_dronekit()
 
         if not self._ensure_connected():
             return
@@ -230,7 +243,7 @@ class UAVController(MotionInterface):
         logger.info("Target altitude reached.")
 
     def _set_mode(self, mode_name: str) -> None:
-        import dronekit  # type: ignore
+        dronekit = _import_dronekit()
 
         if not self._ensure_connected():
             return
