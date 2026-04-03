@@ -132,53 +132,108 @@ class TestL298NDriver:
 # ===================================================================
 
 
+class FakeMotorActuator:
+    """Minimal Actuator stub for UGVController tests.
+
+    Records the last state applied via set_state() so tests can inspect it
+    without needing real GPIO hardware.
+    """
+
+    def __init__(self) -> None:
+        self._last_state: dict = {}
+        self._connected = False
+
+    def open(self) -> None:
+        self._connected = True
+
+    def close(self) -> None:
+        self._connected = False
+
+    def set_state(self, state: dict) -> None:
+        self._last_state = dict(state)
+
+    @property
+    def is_connected(self) -> bool:
+        return self._connected
+
+
 class TestUGVController:
-    """Unit tests for UGVController using the GPIO-based driver."""
+    """Unit tests for UGVController using a stub motor actuator."""
 
     @pytest.fixture()
-    def controller(self):
+    def fake_driver(self) -> FakeMotorActuator:
+        return FakeMotorActuator()
+
+    @pytest.fixture()
+    def controller(self, fake_driver: FakeMotorActuator):
         from controllers.ugv.ugv_controller import UGVController
 
         cfg = {
-            "left_motor": {"in1": 17, "in2": 27, "ena": 18},
-            "right_motor": {"in3": 22, "in4": 23, "enb": 13},
-            "pwm_frequency_hz": 1000,
             "max_linear_speed_mps": 0.3,
             "max_angular_speed_radps": 0.5,
         }
         pose_estimator = MagicMock()
-        ctrl = UGVController(config=cfg, pose_estimator=pose_estimator)
+        ctrl = UGVController(
+            config=cfg,
+            pose_estimator=pose_estimator,
+            motor_driver=fake_driver,
+        )
         ctrl.connect()
         return ctrl
 
     def test_precheck_after_connect(self, controller) -> None:
         controller.precheck()  # should not raise
 
-    def test_precheck_before_connect_raises(self) -> None:
+    def test_precheck_without_driver(self) -> None:
+        """precheck() should run silently even without a motor driver."""
         from controllers.ugv.ugv_controller import UGVController
 
-        cfg = {
-            "left_motor": {"in1": 17, "in2": 27, "ena": 18},
-            "right_motor": {"in3": 22, "in4": 23, "enb": 13},
-        }
-        ctrl = UGVController(config=cfg, pose_estimator=MagicMock())
-        with pytest.raises(RuntimeError, match="GPIO driver not connected"):
-            ctrl.precheck()
+        ctrl = UGVController(config={}, pose_estimator=MagicMock())
+        ctrl.precheck()  # no driver → no raise, just logs
 
-    def test_set_velocity_forward(self, controller) -> None:
+    def test_set_velocity_forward(self, controller, fake_driver: FakeMotorActuator) -> None:
         controller.set_velocity(linear=0.3, angular=0.0)
-        # Both motors should be forward at full normalised speed
-        assert controller._driver._left_ena.value > 0
-        assert controller._driver._right_enb.value > 0
-        assert controller._driver._left_in1.value is True
-        assert controller._driver._right_in3.value is True
+        state = fake_driver._last_state
+        assert state["left"] > 0
+        assert state["right"] > 0
+        assert state["left"] == pytest.approx(1.0, abs=1e-6)
+        assert state["right"] == pytest.approx(1.0, abs=1e-6)
 
-    def test_set_velocity_stop(self, controller) -> None:
+    def test_set_velocity_reverse(self, controller, fake_driver: FakeMotorActuator) -> None:
+        controller.set_velocity(linear=-0.3, angular=0.0)
+        state = fake_driver._last_state
+        assert state["left"] < 0
+        assert state["right"] < 0
+
+    def test_set_velocity_turn(self, controller, fake_driver: FakeMotorActuator) -> None:
+        """Positive angular should produce left > right (left turn)."""
+        controller.set_velocity(linear=0.0, angular=0.5)
+        state = fake_driver._last_state
+        assert state["left"] > state["right"]
+
+    def test_set_velocity_stop(self, controller, fake_driver: FakeMotorActuator) -> None:
         controller.set_velocity(linear=0.3, angular=0.0)
         controller.stop()
-        assert controller._driver._left_ena.value == 0.0
-        assert controller._driver._right_enb.value == 0.0
+        state = fake_driver._last_state
+        assert state["left"] == 0.0
+        assert state["right"] == 0.0
 
-    def test_disconnect(self, controller) -> None:
+    def test_driver_connected_after_connect(self, controller, fake_driver: FakeMotorActuator) -> None:
+        assert fake_driver.is_connected is True
+
+    def test_disconnect(self, controller, fake_driver: FakeMotorActuator) -> None:
         controller.disconnect()
-        assert controller._driver.is_connected is False
+        assert fake_driver.is_connected is False
+
+    def test_no_driver_stop_is_noop(self) -> None:
+        """stop() with no driver should not raise."""
+        from controllers.ugv.ugv_controller import UGVController
+
+        ctrl = UGVController(config={}, pose_estimator=MagicMock())
+        ctrl.stop()  # _driver is None → no-op
+
+    def test_load_waypoints(self, controller) -> None:
+        wps = [(50.0, 20.0), (50.001, 20.001)]
+        controller.load_waypoints(wps)
+        assert controller._waypoints == wps
+        assert controller._wp_index == 0

@@ -3,16 +3,48 @@
 from __future__ import annotations
 
 import socket
+import sys
 import threading
 import time
+import types
 from http.client import HTTPConnection
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 
 from networking.heartbeat import HeartbeatMonitor
 from networking.video_streamer import VideoStreamer
+
+
+# ---------------------------------------------------------------------------
+# Minimal cv2 stub so VideoStreamer JPEG encoding works without OpenCV
+# ---------------------------------------------------------------------------
+
+def _make_fake_cv2():
+    """Return a cv2 module stub that encodes frames as minimal JPEG bytes."""
+    fake = types.ModuleType("cv2")
+    fake.IMWRITE_JPEG_QUALITY = 1
+
+    def imencode(_ext, frame, params=None):  # noqa: ANN001
+        # Return a tiny valid JPEG (FF D8 … FF D9) regardless of input
+        jpeg_bytes = (
+            b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+            b"\xff\xd9"
+        )
+
+        class _Buf:
+            def tobytes(self):
+                return jpeg_bytes
+
+        return True, _Buf()
+
+    fake.imencode = imencode
+    return fake
+
+
+if "cv2" not in sys.modules:
+    sys.modules["cv2"] = _make_fake_cv2()
 
 
 def _free_port() -> int:
